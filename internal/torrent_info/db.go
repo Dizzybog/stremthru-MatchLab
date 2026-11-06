@@ -1705,7 +1705,7 @@ func GetMatchLabPendingHashes(limit int) ([]MatchLabPendingHash, error) {
 func RetryMatchLabParse(hash string, title string, after time.Duration) error {
 	when := db.Timestamp{Time: time.Now().Add(after)}
 	_, err := db.Exec("UPDATE torrent_info SET matchlab_parse_retry_at = ? "+
-		"WHERE hash = ? AND t_title = ? AND parser_version != ?",
+		"WHERE hash = ? AND t_title = ? AND (parser_version != ? OR parser_input != t_title)",
 		when, hash, title, matchlab.ParserVersion,
 	)
 	return err
