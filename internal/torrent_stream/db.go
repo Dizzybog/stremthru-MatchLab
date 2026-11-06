@@ -693,6 +693,11 @@ var tag_strem_id_query = fmt.Sprintf(
 )
 
 func TagStremId(hash string, filepath string, sid string) {
+	if config.Integration.MatchLab.IsEnabled() {
+		// Do not persist request-derived IDs over an authoritative
+		// MatchLab no-match or independent file identity.
+		return
+	}
 	if filepath == "" {
 		return
 	}
@@ -720,6 +725,10 @@ var query_tag_anime_strem_id = fmt.Sprintf(
 )
 
 func TagAnimeStremId(hash string, filepath string, sid string) {
+	if config.Integration.MatchLab.IsEnabled() {
+		// MatchLab supplies verified AniDB coordinates for each file.
+		return
+	}
 	if filepath == "" {
 		return
 	}
