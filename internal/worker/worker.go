@@ -483,6 +483,9 @@ func InitWorkers() func() {
 		RunAtStartupAfter: 30 * time.Second,
 		RunExclusive:      true,
 		ShouldWait: func() (bool, string) {
+			if config.Integration.MatchLab.IsEnabled() {
+				return false, ""
+			}
 			mutex.Lock()
 			defer mutex.Unlock()
 
