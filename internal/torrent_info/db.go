@@ -1,6 +1,7 @@
 package torrent_info
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/config"
 	"github.com/MunifTanjim/stremthru/internal/db"
 	"github.com/MunifTanjim/stremthru/internal/imdb_torrent"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	ts "github.com/MunifTanjim/stremthru/internal/torrent_stream"
 	"github.com/MunifTanjim/stremthru/internal/util"
 	"github.com/MunifTanjim/stremthru/store"
@@ -254,7 +256,13 @@ func (ti *TorrentInfo) ForceParse() error {
 }
 
 func (ti *TorrentInfo) parse() error {
-	r, err := util.ParseTorrentTitle(ti.TorrentTitle)
+	var r *ptt.Result
+	var err error
+	if matchlab.Enabled() {
+		r, err = matchlab.Default.Parse(context.Background(), ti.TorrentTitle)
+	} else {
+		r, err = util.ParseTorrentTitle(ti.TorrentTitle)
+	}
 	if err != nil {
 		return err
 	}
@@ -274,6 +282,9 @@ func (ti *TorrentInfo) parse() error {
 
 	ti.ParsedAt = db.Timestamp{Time: time.Now()}
 	ti.ParserVersion = ptt.Version().Int()
+	if matchlab.Enabled() {
+		ti.ParserVersion = matchlab.ParserVersion
+	}
 	ti.ParserInput = ti.TorrentTitle
 
 	ti.Audio = r.Audio
@@ -912,12 +923,37 @@ var get_unparsed_query = fmt.Sprintf(
 	Column.ParserInput,
 )
 
+var get_local_reparse_query = fmt.Sprintf(
+	"SELECT %s FROM %s WHERE %s != %s OR %s = %d LIMIT ?",
+	db.JoinColumnNames(Columns...),
+	TableName,
+	Column.TorrentTitle,
+	Column.ParserInput,
+	Column.ParserVersion,
+	matchlab.ParserVersion,
+)
+
+var get_matchlab_unparsed_query = fmt.Sprintf(
+	"SELECT %s FROM %s WHERE (%s != %s OR %s != %d) AND (matchlab_parse_retry_at IS NULL OR matchlab_parse_retry_at <= %s) LIMIT ?",
+	db.JoinColumnNames(Columns...),
+	TableName,
+	Column.TorrentTitle,
+	Column.ParserInput,
+	Column.ParserVersion,
+	matchlab.ParserVersion,
+	db.CurrentTimestamp,
+)
+
 func GetUnparsed(limit int) ([]TorrentInfo, error) {
 	if limit == 0 {
 		limit = 5000
 	}
 
-	rows, err := db.Query(get_unparsed_query, limit)
+	query := get_local_reparse_query
+	if matchlab.Enabled() {
+		query = get_matchlab_unparsed_query
+	}
+	rows, err := db.Query(query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1004,7 +1040,7 @@ var query_upsert_parsed_before_values = fmt.Sprintf(
 )
 var query_upsert_parsed_values_placeholder = fmt.Sprintf("(%s)", util.RepeatJoin("?", len(Columns), ","))
 var query_upsert_parsed_on_confict = fmt.Sprintf(
-	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s)`,
+	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s), matchlab_mapped_at = NULL, matchlab_retry_at = NULL, matchlab_parse_retry_at = NULL`,
 	Column.Hash,
 	db.JoinColumnNames(upsert_parsed_on_conflict_columns...),
 	strings.Join(
@@ -1135,7 +1171,7 @@ var query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent = fmt.Sprintf(
 	anidb.TorrentColumn.Season,
 )
 var query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent_with_episode = fmt.Sprintf(
-	"SELECT ato.%s FROM %s ato WHERE ato.%s = ? AND ato.%s = '%s' AND ato.%s = ? AND (ato.%s = 0 OR ato.%s <= ?) AND (ato.%s = 0 OR ato.%s >= ?)",
+	"SELECT ato.%s FROM %s ato WHERE ato.%s = ? AND ato.%s = '%s' AND ato.%s = ? AND ((ato.eps != '' AND CONCAT(',', ato.eps, ',') LIKE ?) OR (ato.eps = '' AND (ato.%s = 0 OR ato.%s <= ?) AND (ato.%s = 0 OR ato.%s >= ?)))",
 	anidb.TorrentColumn.Hash,
 	anidb.TorrentTableName,
 	anidb.TorrentColumn.TId,
@@ -1169,7 +1205,7 @@ func listHashesForAnimeByAniDBId(anidbId, season, episode string) ([]string, err
 
 		ep := util.SafeParseInt(episode, -1)
 		query.WriteString(query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent_with_episode)
-		args = append(args, anidbId, s, ep, ep)
+		args = append(args, anidbId, s, "%,"+episode+",%", ep, ep)
 	}
 	rows, err := db.Query(query.String(), args...)
 	if err != nil {
@@ -1427,7 +1463,7 @@ func ListByStremId(stremId string, excludeMissingSize bool) (*ListTorrentsData, 
 
 			ep := util.SafeParseInt(nsid.Episode, -1)
 			query.WriteString(query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent_with_episode)
-			args = append(args, nsid.Id, s, ep, ep)
+			args = append(args, nsid.Id, s, "%,"+nsid.Episode+",%", ep, ep)
 		}
 		query.WriteString(")")
 	} else {
@@ -1632,6 +1668,60 @@ func ExistsByHash(hashes []string) (map[string]bool, error) {
 	return exists, nil
 }
 
+// MatchLabPendingHash describes a torrent awaiting identity matching.
+// FileRevision is an optimistic lock: fresh stream data during HTTP matching
+// invalidates the in-flight snapshot and schedules a safe retry.
+type MatchLabPendingHash struct {
+	Hash         string
+	FileRevision int64
+}
+
+func GetMatchLabPendingHashes(limit int) ([]MatchLabPendingHash, error) {
+	limit = max(1, min(limit, 500))
+	rows, err := db.Query(
+		"SELECT hash, matchlab_file_revision FROM torrent_info "+
+			"WHERE matchlab_mapped_at IS NULL AND t_title = parser_input "+
+			"AND (matchlab_retry_at IS NULL OR matchlab_retry_at <= "+db.CurrentTimestamp+") "+
+			"AND parser_version = ? ORDER BY hash LIMIT ?",
+		matchlab.ParserVersion, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	hashes := []MatchLabPendingHash{}
+	for rows.Next() {
+		var item MatchLabPendingHash
+		if err := rows.Scan(&item.Hash, &item.FileRevision); err != nil {
+			return nil, err
+		}
+		hashes = append(hashes, item)
+	}
+	return hashes, rows.Err()
+}
+
+// RetryMatchLabParse defers an invalid release or a temporarily failing API.
+// The title check prevents an old request from suppressing a changed title.
+func RetryMatchLabParse(hash string, title string, after time.Duration) error {
+	when := db.Timestamp{Time: time.Now().Add(after)}
+	_, err := db.Exec("UPDATE torrent_info SET matchlab_parse_retry_at = ? "+
+		"WHERE hash = ? AND t_title = ? AND (parser_version != ? OR parser_input != t_title)",
+		when, hash, title, matchlab.ParserVersion,
+	)
+	return err
+}
+
+// RetryMatchLabHash schedules retry after a transport or database error.
+// Guarding by revision avoids delaying a newer file snapshot.
+func RetryMatchLabHash(hash string, fileRevision int64, after time.Duration) error {
+	when := db.Timestamp{Time: time.Now().Add(after)}
+	_, err := db.Exec("UPDATE torrent_info SET matchlab_retry_at = ? "+
+		"WHERE hash = ? AND matchlab_file_revision = ? AND matchlab_mapped_at IS NULL",
+		when, hash, fileRevision,
+	)
+	return err
+}
+
 var query_get_imdb_unmapped_hashes = fmt.Sprintf(
 	"SELECT ti.%s FROM %s ti LEFT JOIN %s ito ON ti.%s = ito.%s WHERE ti.%s = ti.%s AND ito.%s IS NULL LIMIT ?",
 	Column.Hash,
@@ -1789,10 +1879,11 @@ func GetBasicInfoByHash(hashes []string) (map[string]BasicInfo, error) {
 }
 
 var query_mark_for_reparse_below_version = fmt.Sprintf(
-	`UPDATE %s SET %s = '' WHERE %s < ?`,
+	`UPDATE %s SET %s = '' WHERE %s < ? AND %s != ''`,
 	TableName,
 	Column.ParserInput,
 	Column.ParserVersion,
+	Column.ParserInput,
 )
 
 func MarkForReparseBelowVersion(version int) error {

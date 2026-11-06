@@ -73,6 +73,13 @@ sequenceDiagram
 
 ## Configuration
 
+### MatchLab integration (fork)
+
+Configure `STREMTHRU_INTEGRATION_MATCHLAB_URL` to route torrent parsing,
+IMDb matching and AniDB / stream-file mapping through MatchLab. See
+[the integration guide](./docs/matchlab.md) for setup, episode rules,
+migration details and safety constraints.
+
 Check [documentation](https://docs.stremthru.13377001.xyz/configuration).
 
 ### Stremio Addons

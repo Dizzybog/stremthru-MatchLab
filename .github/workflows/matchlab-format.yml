@@ -1,0 +1,36 @@
+name: Normalize MatchLab Go files
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: matchlab-format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    if: github.ref == 'refs/heads/feat/matchlab-native-mapping'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Normalize code with gofmt
+        run: |
+          gofmt -w internal/config/config.go internal/config/integration.go \
+            internal/matchlab/client.go internal/matchlab/client_test.go \
+            internal/torrent_stream/db.go \
+            internal/worker/map_matchlab_torrent.go \
+            internal/worker/map_matchlab_torrent_test.go \
+            internal/worker/torrent_parser.go
+          git diff --check
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add internal
+            git commit -m "style(matchlab): apply gofmt to all integration code"
+            git push origin HEAD:feat/matchlab-native-mapping
+          fi
