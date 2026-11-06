@@ -105,7 +105,7 @@ func addMatchLabAnime(groups map[string]*matchLabAnimeGroup, ids map[string]int,
 		}
 		animeSeason, present := ids[id]
 		if !present || animeSeason < 0 {
-			animeSeason = 0 // unknown, not an inferred season number
+			animeSeason = -1 // unknown, not an inferred season number
 		}
 		key := fmt.Sprintf("%s:ani:%d", id, animeSeason)
 		g := groups[key]
@@ -120,7 +120,7 @@ func addMatchLabAnime(groups map[string]*matchLabAnimeGroup, ids map[string]int,
 		lastID, last, ok2 := matchlab.ParseASID(*r.ASIDEnd)
 		if ok1 && ok2 && firstID == lastID && last >= first && last-first <= 2047 {
 			s, present := ids[firstID]
-			if !present || s < 0 { s = 0 }
+			if !present || s < 0 { s = -1 }
 			g := groups[fmt.Sprintf("%s:ani:%d", firstID, s)]
 			// The /match response only exposes verified endpoints. Do not
 			// interpolate an anime range when mapping segments may be missing.
@@ -185,7 +185,9 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		for id := range wholeIDs {
 			if _, ok := fileIDs[id]; ok {
 				coords[id] = append(coords[id], wholeCoords[id]...)
-				addMatchLabRange(coords, whole)
+				if len(coords[id]) == len(wholeCoords[id]) {
+					addMatchLabRange(coords, whole)
+				}
 			}
 		}
 	}
@@ -209,6 +211,28 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 			episodeSet[ep.episode] = struct{}{}
 		}
 		result.Seasons = sortedInts(seasonSet)
+		if len(result.Seasons) > 1 {
+			// Validated endpoints delimit the requested season interval.
+			// The torrent parser can also expose intermediate season numbers.
+			first, last := result.Seasons[0], result.Seasons[len(result.Seasons)-1]
+			if last-first < 2048 {
+				result.Seasons = result.Seasons[:0]
+				for season := first; season <= last; season++ {
+					result.Seasons = append(result.Seasons, season)
+				}
+			}
+		}
+		if len(torrent.Seasons) > 1 && len(result.Seasons) > 0 {
+			// The parsed collection can contain seasons whose individual
+			// episode files could not be identified. Keep those explicit
+			// season labels, not inferred episode coordinates.
+			for _, season := range torrent.Seasons {
+				if season > 0 && season <= 9999 {
+					seasonSet[season] = struct{}{}
+				}
+			}
+			result.Seasons = sortedInts(seasonSet)
+		}
 		if len(result.Seasons) > 1 {
 			// A multi-season torrent must not expose an unscoped episode list.
 			result.Episodes = []int{}
@@ -369,7 +393,7 @@ func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files to
 			for _, id := range ids { seasonMap[id] = titles.GetSeason(id) }
 		}
 		// Absence of local anime title metadata must not stop MatchLab from
-		// supplying ASID. Store anime season=0 (unknown) in that case.
+		// supplying ASID. Preserve unknown season=-1 (query sentinel).
 	}
 	mapping := buildMatchLabMapping(t, whole, mappedFiles, seasonMap)
 	return saveMatchLabMapping(t, mapping)
