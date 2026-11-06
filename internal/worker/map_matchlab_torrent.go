@@ -343,8 +343,20 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		(len(result.Seasons) > 0 || len(result.Episodes) > 0) {
 		result.Category = torrent_info.TorrentInfoCategorySeries
 	}
-	if len(ids) == 0 && len(animeGroups) > 0 && result.Category == "" {
-		result.Category = torrent_info.TorrentInfoCategorySeries
+	if len(animeGroups) > 0 && result.Category == "" {
+		// Mixed AniDB seasons should still be categorized as TV when
+		// verified coordinates show episodic (non-movie) content.
+		for _, group := range animeGroups {
+			for ep := range group.episode {
+				if ep > 0 {
+					result.Category = torrent_info.TorrentInfoCategorySeries
+					break
+				}
+			}
+			if result.Category != "" {
+				break
+			}
+		}
 	}
 
 	for _, group := range animeGroups {
