@@ -311,6 +311,66 @@ func (c *Client) Match(ctx context.Context, title string) (Response, error) {
 	return result, result.Validate()
 }
 
+// EpisodeSegment is an individually verified contiguous anime crosswalk.
+type EpisodeSegment struct {
+	Season            int    `json:"season"`
+	StartEpisode      int    `json:"start_episode"`
+	EndEpisode        int    `json:"end_episode"`
+	AniDBID           string `json:"anidb_id"`
+	StartAnimeEpisode int    `json:"start_anime_episode"`
+	EndAnimeEpisode   int    `json:"end_anime_episode"`
+}
+
+func (s EpisodeSegment) Valid() bool {
+	if _, err := strconv.Atoi(s.AniDBID); err != nil {
+		return false
+	}
+	return s.Season >= 0 && s.Season <= 9999 &&
+		s.StartEpisode >= 0 && s.EndEpisode >= s.StartEpisode &&
+		s.EndEpisode-s.StartEpisode <= 2047 &&
+		s.StartAnimeEpisode >= 0 && s.EndAnimeEpisode >= s.StartAnimeEpisode &&
+		s.EndAnimeEpisode-s.StartAnimeEpisode <= 2047
+}
+
+type DebugMatch struct {
+	Selected *struct {
+		IMDbID string `json:"imdb_id"`
+		EpisodeRange *struct {
+			Complete      bool             `json:"complete"`
+			UnmappedCount int              `json:"unmapped_count"`
+			Segments      []EpisodeSegment `json:"segments"`
+		} `json:"episode_range"`
+	} `json:"selected"`
+}
+
+func (c *Client) Debug(ctx context.Context, title string) (*DebugMatch, error) {
+	var result DebugMatch
+	if err := c.request(ctx, "/debug/match", title, &result); err != nil {
+		return nil, err
+	}
+	if result.Selected != nil && result.Selected.EpisodeRange != nil {
+		for _, segment := range result.Selected.EpisodeRange.Segments {
+			if !segment.Valid() {
+				return nil, fmt.Errorf("MatchLab debug returned an invalid anime mapping segment")
+			}
+		}
+	}
+	return &result, nil
+}
+
+func (c *Client) Health(ctx context.Context) error {
+	if c == nil { return errors.New("MatchLab is not configured") }
+	u := *c.base
+	u.Path += "/health/ready"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil { return err }
+	res, err := c.http.Do(req)
+	if err != nil { return err }
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK { return fmt.Errorf("MatchLab is not ready: HTTP %d", res.StatusCode) }
+	return nil
+}
+
 func (c *Client) Parse(ctx context.Context, title string) (*ptt.Result, error) {
 	var result Parsed
 	if err := c.request(ctx, "/parse", title, &result); err != nil {
