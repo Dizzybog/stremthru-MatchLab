@@ -190,3 +190,29 @@ func TestMatchLabAbsoluteAnimeSegments(t *testing.T) {
 	}
 	if !found { t.Fatal("missing absolute AniDB mapping") }
 }
+
+func TestMatchLabRepresentativeUsesHighestEpisodeInOneSeason(t *testing.T) {
+	torrent := torrent_info.TorrentInfo{Hash:"h", TorrentTitle:"Example Show S01"}
+	files := []matchLabFileResult{
+		{Path:"/Example Show S01E02.mkv",Match:mkSID("tt1111111:1:2","tt1111111:1:2")},
+		{Path:"/Example Show S01E17.mkv",Match:mkSID("tt2222222:1:17","tt2222222:1:17")},
+	}
+	if got := representativeSeriesID(files); got != "tt2222222" {
+		t.Fatalf("highest episode should identify series, got %q",got)
+	}
+	mapped := buildMatchLabMapping(torrent,matchlab.Response{},nil,files,nil)
+	if !reflect.DeepEqual(mapped.IMDbIDs,[]string{"tt2222222"}) {
+		t.Fatalf("unexpected IMDb IDs: %v",mapped.IMDbIDs)
+	}
+}
+
+func TestMatchLabRepresentativeUsesHighestSeasonInMultiSeasonPack(t *testing.T) {
+	files := []matchLabFileResult{
+		{Path:"/S01E24.mkv",Match:mkSID("tt1111111:1:24","tt1111111:1:24")},
+		{Path:"/S03E01.mkv",Match:mkSID("tt2222222:3:1","tt2222222:3:1")},
+		{Path:"/S02E12.mkv",Match:mkSID("tt3333333:2:12","tt3333333:2:12")},
+	}
+	if got := representativeSeriesID(files); got != "tt2222222" {
+		t.Fatalf("highest season should identify series, got %q",got)
+	}
+}
