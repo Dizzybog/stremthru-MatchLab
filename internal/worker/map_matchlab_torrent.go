@@ -405,7 +405,7 @@ func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevi
 	seasons := intsCSV(m.Seasons)
 	episodes := intsCSV(m.Episodes)
 	res, err := tx.Exec(
-		"UPDATE torrent_info SET seasons = ?, episodes = ?, category = ?, matchlab_mapped_at = "+db.CurrentTimestamp+", updated_at = "+db.CurrentTimestamp+
+		"UPDATE torrent_info SET seasons = ?, episodes = ?, category = ?, matchlab_mapped_at = "+db.CurrentTimestamp+", matchlab_retry_at = NULL, updated_at = "+db.CurrentTimestamp+
 			" WHERE hash = ? AND t_title = ? AND parser_input = ? AND matchlab_mapped_at IS NULL"+
 			" AND parser_version = ? AND matchlab_file_revision = ?",
 		seasons, episodes, m.Category, t.Hash, t.TorrentTitle, t.TorrentTitle, matchlab.ParserVersion, fileRevision,
@@ -534,8 +534,14 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 					defer cancel()
 					if err := doMatchLabTorrent(ctx, t, files, revision); err != nil {
+						// A poison torrent or one enormous pack must not
+						// permanently starve the other pending hashes.
+						retryErr := torrent_info.RetryMatchLabHash(hash, revision, 5*time.Minute)
 						mutex.Lock()
 						errs = append(errs, fmt.Errorf("%s: %w", hash, err))
+						if retryErr != nil {
+							errs = append(errs, fmt.Errorf("%s: schedule retry: %w", hash, retryErr))
+						}
 						mutex.Unlock()
 					}
 				}(hash, t, allFiles[hash], entry.FileRevision)
