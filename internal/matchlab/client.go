@@ -181,7 +181,7 @@ type Parsed struct {
 	Site         string          `json:"site"`
 	Size         string          `json:"size"`
 	Subbed       bool            `json:"subbed"`
-	ThreeD       string          `json:"3d"`
+	ThreeD       json.RawMessage `json:"3d"`
 	Uncensored   bool            `json:"uncensored"`
 	Unrated      bool            `json:"unrated"`
 	Upscaled     bool            `json:"upscaled"`
@@ -189,6 +189,15 @@ type Parsed struct {
 }
 
 func (p Parsed) ToPTTResult() *ptt.Result {
+	threeD := ""
+	if len(p.ThreeD) > 0 && string(p.ThreeD) != "null" {
+		if err := json.Unmarshal(p.ThreeD, &threeD); err != nil {
+			var enabled bool
+			if json.Unmarshal(p.ThreeD, &enabled) == nil && enabled {
+				threeD = "3d"
+			}
+		}
+	}
 	year := ""
 	if len(p.Year) > 0 && string(p.Year) != "null" {
 		if err := json.Unmarshal(p.Year, &year); err != nil {
@@ -210,7 +219,7 @@ func (p Parsed) ToPTTResult() *ptt.Result {
 		Region: p.Region, ReleaseTypes: p.ReleaseTypes,
 		Remastered: p.Remastered, Repack: p.Repack, Resolution: p.Resolution,
 		Retail: p.Retail, Seasons: p.Seasons, Site: p.Site, Size: p.Size,
-		Subbed: p.Subbed, ThreeD: p.ThreeD, Uncensored: p.Uncensored,
+		Subbed: p.Subbed, ThreeD: threeD, Uncensored: p.Uncensored,
 		Unrated: p.Unrated, Upscaled: p.Upscaled, Volumes: p.Volumes,
 	}
 }
