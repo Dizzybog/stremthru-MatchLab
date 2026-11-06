@@ -163,3 +163,30 @@ func TestMatchLabMixedSeasonSegmentsPreserveAniDBIdentity(t *testing.T) {
 	}
 	if !ids["69"] || !ids["70"] { t.Fatalf("mixed AniDB title IDs missing: %v",ids) }
 }
+
+func TestMatchLabAbsoluteAnimeSegments(t *testing.T) {
+	pack := torrent_info.TorrentInfo{Hash: "abs-hash", TorrentTitle:"One Piece E768-E770"}
+	first, last := 768, 770
+	segments := []matchlab.EpisodeSegment{{
+		Season: 19, StartEpisode: 2, EndEpisode: 4,
+		AniDBID: "69", StartAnimeEpisode: 2, EndAnimeEpisode: 4,
+		StartAbsolute: &first, EndAbsolute: &last,
+	}}
+	r := matchlab.Response{
+		SIDStart: matchLabPointer("tt1234567:19:2"),
+		SIDEnd: matchLabPointer("tt1234567:19:4"),
+		ASIDStart: matchLabPointer("69:2"),
+		ASIDEnd: matchLabPointer("69:4"),
+	}
+	mapped := buildMatchLabMapping(pack, r, segments, nil, map[string]int{"69":1})
+	found := false
+	for _, row := range mapped.AniDB {
+		if row.TId == "69" && row.SeasonType == anidb.TorrentSeasonTypeAbsolute {
+			found = true
+			if row.Season != 19 || !reflect.DeepEqual([]int(row.Episodes), []int{768,769,770}) {
+				t.Fatalf("wrong absolute season/episodes: %+v", row)
+			}
+		}
+	}
+	if !found { t.Fatal("missing absolute AniDB mapping") }
+}
