@@ -1,8 +1,6 @@
 name: Normalize MatchLab Go files
 
 on:
-  push:
-    branches: [feat/matchlab-native-mapping]
   workflow_dispatch:
 
 permissions:
