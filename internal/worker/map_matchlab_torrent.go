@@ -337,7 +337,7 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		entry := anidb.AniDBTorrent{
 			TId:group.id, Hash:torrent.Hash, SeasonType:group.kind,
 			Season:group.season, EpisodeStart:eps[0],
-			EpisodeEnd:eps[len(eps)-1], Episodes:eps,
+			EpisodeEnd:eps[len(eps)-1], Episodes:db.CommaSeperatedInt(eps),
 		}
 		result.AniDB = append(result.AniDB, entry)
 	}
