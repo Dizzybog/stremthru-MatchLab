@@ -269,3 +269,57 @@ func TestMatchLabTimeoutGrowsForLargePacks(t *testing.T) {
 		t.Fatalf("timeout must be capped: %s", got)
 	}
 }
+
+func TestMatchLabVerifiedSeasonsOverrideStaleParser(t *testing.T) {
+	// A previously parsed pack claimed S01-S04, but verified file SIDs
+	// establish only S01-S03. The extra season must not survive remapping.
+	pack := torrent_info.TorrentInfo{
+		Hash: "override", TorrentTitle: "Example Show S01-S04",
+		Seasons:  torrent_info.CommaSeperatedInt{1, 2, 3, 4},
+		Episodes: torrent_info.CommaSeperatedInt{77, 78},
+	}
+	files := []matchLabFileResult{
+		{Path: "/S01E01.mkv", Match: mkSID("tt1234567:1:1", "tt1234567:1:1")},
+		{Path: "/S03E08.mkv", Match: mkSID("tt1234567:3:8", "tt1234567:3:8")},
+	}
+	mapped := buildMatchLabMapping(pack, matchlab.Response{}, nil, files, nil)
+	if !reflect.DeepEqual(mapped.Seasons, []int{1, 2, 3}) {
+		t.Fatalf("stale parser season survived: %v", mapped.Seasons)
+	}
+	if len(mapped.Episodes) != 0 {
+		t.Fatalf("multi-season torrent cannot retain stale parser episodes: %v", mapped.Episodes)
+	}
+}
+
+func TestMatchLabVerifiedSingleSeasonOverridesStaleValues(t *testing.T) {
+	pack := torrent_info.TorrentInfo{
+		Hash: "override-single", TorrentTitle: "Example Show S05",
+		Seasons:  torrent_info.CommaSeperatedInt{5},
+		Episodes: torrent_info.CommaSeperatedInt{37, 38, 39},
+	}
+	files := []matchLabFileResult{
+		{Path: "/S02E03.mkv", Match: mkSID("tt1234567:2:3", "tt1234567:2:3")},
+		{Path: "/S02E05.mkv", Match: mkSID("tt1234567:2:5", "tt1234567:2:5")},
+	}
+	mapped := buildMatchLabMapping(pack, matchlab.Response{}, nil, files, nil)
+	if !reflect.DeepEqual(mapped.Seasons, []int{2}) {
+		t.Fatalf("expected corrected verified season, got %v", mapped.Seasons)
+	}
+	if !reflect.DeepEqual(mapped.Episodes, []int{3, 4, 5}) {
+		t.Fatalf("expected corrected verified episodes, got %v", mapped.Episodes)
+	}
+}
+
+func TestMatchLabUnscopedIdentityKeepsParsedSeasonOnlyWhenUnverified(t *testing.T) {
+	// A bare IMDb ID carries no season/episode evidence. Do not erase
+	// already parsed coordinates until MatchLab verifies replacements.
+	pack := torrent_info.TorrentInfo{
+		Hash: "unscoped", TorrentTitle: "Example Show S02E07",
+		Seasons:  torrent_info.CommaSeperatedInt{2},
+		Episodes: torrent_info.CommaSeperatedInt{7},
+	}
+	mapped := buildMatchLabMapping(pack, mkSID("tt1234567", "tt1234567"), nil, nil, nil)
+	if !reflect.DeepEqual(mapped.Seasons, []int{2}) || !reflect.DeepEqual(mapped.Episodes, []int{7}) {
+		t.Fatalf("bare IMDb ID must not discard parser coordinates: seasons=%v, episodes=%v", mapped.Seasons, mapped.Episodes)
+	}
+}

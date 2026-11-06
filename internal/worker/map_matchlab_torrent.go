@@ -361,17 +361,10 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 				}
 			}
 		}
-		if len(torrent.Seasons) > 1 && len(result.Seasons) > 0 {
-			// The parsed collection can contain seasons whose individual
-			// episode files could not be identified. Keep those explicit
-			// season labels, not inferred episode coordinates.
-			for _, season := range torrent.Seasons {
-				if season > 0 && season <= 9999 {
-					seasonSet[season] = struct{}{}
-				}
-			}
-			result.Seasons = sortedInts(seasonSet)
-		}
+		// MatchLab's verified SID coordinates are authoritative. Never
+		// reintroduce stale seasons from the earlier /parse result: a
+		// corrected IMDb match must replace torrent_info.seasons and
+		// torrent_info.episodes, not merge with the old values.
 		if len(result.Seasons) > 1 {
 			// A multi-season torrent must not expose an unscoped episode list.
 			result.Episodes = []int{}
