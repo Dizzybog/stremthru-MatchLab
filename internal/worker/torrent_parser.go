@@ -14,12 +14,14 @@ func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
 	if matchlab.Enabled() {
 		targetVersion = matchlab.ParserVersion
 	}
-	if err := ti.MarkForReparseBelowVersion(targetVersion); err != nil {
-		panic(err)
+	if !matchlab.Enabled() {
+		if err := ti.MarkForReparseBelowVersion(targetVersion); err != nil {
+			panic(err)
+		}
 	}
 
 	var parseTorrentInfo = func(w *Worker, t *ti.TorrentInfo) *ti.TorrentInfo {
-		if !matchlab.Enabled() && t.ParserVersion > ptt.Version().Int() {
+		if !matchlab.Enabled() && t.ParserVersion > ptt.Version().Int() && t.ParserVersion != matchlab.ParserVersion {
 			return nil
 		}
 
