@@ -183,11 +183,11 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		// A torrent-title match is evidence only when it identifies the same
 		// work as the independently matched file(s).
 		for id := range wholeIDs {
-			if _, ok := fileIDs[id]; ok {
+			if _, ok := fileIDs[id]; ok && len(coords[id]) == 0 {
+				// Trust root coordinates only when the file names could not
+				// establish the episode span independently.
 				coords[id] = append(coords[id], wholeCoords[id]...)
-				if len(coords[id]) == len(wholeCoords[id]) {
-					addMatchLabRange(coords, whole)
-				}
+				addMatchLabRange(coords, whole)
 			}
 		}
 	}
