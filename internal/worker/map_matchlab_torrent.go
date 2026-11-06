@@ -427,14 +427,16 @@ func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevi
 
 	for _, f := range m.Files {
 		sid, asid := f.Match.SingleSID(), f.Match.SingleASID()
-		if sid == "" && asid == "" { continue }
-		// Preserve an existing independently supplied identifier only when
-		// MatchLab gives no replacement for that particular field.
-		if sid != "" {
-			if _, err = tx.Exec("UPDATE torrent_stream SET sid = ?, uat = "+db.CurrentTimestamp+" WHERE h = ? AND p = ?", sid, t.Hash, f.Path); err != nil { return err }
+		if sid == "" {
+			sid = "*" // StremThru's explicit unmatched file sentinel
 		}
-		if asid != "" {
-			if _, err = tx.Exec("UPDATE torrent_stream SET asid = ?, uat = "+db.CurrentTimestamp+" WHERE h = ? AND p = ?", asid, t.Hash, f.Path); err != nil { return err }
+		// MatchLab is authoritative in this mode. Retaining stale local
+		// SID/ASID values would leak obsolete identities into search results.
+		if _, err = tx.Exec(
+			"UPDATE torrent_stream SET sid = ?, asid = ?, uat = "+db.CurrentTimestamp+
+				" WHERE h = ? AND p = ?", sid, asid, t.Hash, f.Path,
+		); err != nil {
+			return err
 		}
 	}
 	if err = tx.Commit(); err != nil { return err }
