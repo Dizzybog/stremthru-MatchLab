@@ -18,6 +18,7 @@ import (
 	"github.com/MunifTanjim/stremthru/core"
 	"github.com/MunifTanjim/stremthru/internal/anime"
 	"github.com/MunifTanjim/stremthru/internal/cache"
+	"github.com/MunifTanjim/stremthru/internal/config"
 	"github.com/MunifTanjim/stremthru/internal/db"
 	"github.com/MunifTanjim/stremthru/internal/torrent_stream/media_info"
 	"github.com/MunifTanjim/stremthru/internal/util"
@@ -346,6 +347,10 @@ func GetFile(hash string, sid string) (*File, error) {
 	return &file, nil
 }
 
+// InvalidateFilesByHash prevents stale SID/ASID data after an external
+// mapper updates torrent_stream directly in an atomic database transaction.
+func InvalidateFilesByHash(hash string) { filesByHashCache.Remove(hash) }
+
 var filesByHashCache = cache.NewCache[Files](&cache.CacheConfig{
 	Name:     "torrent_stream:files_by_hash",
 	Lifetime: 2 * time.Hour,
@@ -622,6 +627,18 @@ func Record(items []InsertData, discardIdx bool) error {
 				if !invalidatedHashes.Has(hash) {
 					filesByHashCache.Remove(hash)
 					invalidatedHashes.Add(hash)
+				}
+			}
+			if config.Integration.MatchLab.IsEnabled() {
+				// Only touched hashes need another MatchLab pass. Avoid
+				// polling the entire torrent_stream table every cycle.
+				hashes := invalidatedHashes.List()
+				if len(hashes) > 0 {
+					query, args := db.InStringValues(hashes)
+					_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = NULL WHERE hash " + query, args...)
+					if err != nil {
+						errs = append(errs, err)
+					}
 				}
 			}
 		}
