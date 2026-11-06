@@ -923,6 +923,16 @@ var get_unparsed_query = fmt.Sprintf(
 	Column.ParserInput,
 )
 
+var get_local_reparse_query = fmt.Sprintf(
+	"SELECT %s FROM %s WHERE %s != %s OR %s = %d LIMIT ?",
+	db.JoinColumnNames(Columns...),
+	TableName,
+	Column.TorrentTitle,
+	Column.ParserInput,
+	Column.ParserVersion,
+	matchlab.ParserVersion,
+)
+
 var get_matchlab_unparsed_query = fmt.Sprintf(
 	"SELECT %s FROM %s WHERE %s != %s OR %s != %d LIMIT ?",
 	db.JoinColumnNames(Columns...),
@@ -938,7 +948,7 @@ func GetUnparsed(limit int) ([]TorrentInfo, error) {
 		limit = 5000
 	}
 
-	query := get_unparsed_query
+	query := get_local_reparse_query
 	if matchlab.Enabled() {
 		query = get_matchlab_unparsed_query
 	}
