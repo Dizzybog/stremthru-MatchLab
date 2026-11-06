@@ -477,7 +477,7 @@ func InitWorkers() func() {
 	}
 
 	if worker := InitMapIMDBTorrentWorker(&WorkerConfig{
-		Disabled:          !config.Feature.HasIMDBTitle(),
+		Disabled:          !config.Feature.HasIMDBTitle() && !config.Integration.MatchLab.IsEnabled(),
 		Name:              "map-imdb-torrent",
 		Interval:          30 * time.Minute,
 		RunAtStartupAfter: 30 * time.Second,
@@ -675,7 +675,7 @@ func InitWorkers() func() {
 	}
 
 	if worker := InitMapAniDBTorrentWorker(&WorkerConfig{
-		Disabled:          !config.Feature.IsEnabled("anime"),
+		Disabled:          !config.Feature.IsEnabled("anime") || config.Integration.MatchLab.IsEnabled(),
 		Name:              "map-anidb-torrent",
 		Interval:          30 * time.Minute,
 		RunAtStartupAfter: 90 * time.Second,
