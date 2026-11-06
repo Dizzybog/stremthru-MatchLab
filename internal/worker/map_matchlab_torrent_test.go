@@ -26,7 +26,7 @@ func TestMatchLabSingleSeasonEnumeratesEpisodeInterval(t *testing.T) {
 		{Path:"/Supernatural/S02E01.mkv", Match:mkSID("tt0460681:2:1","tt0460681:2:1")},
 		{Path:"/Supernatural/S02E03.mkv", Match:mkSID("tt0460681:2:3","tt0460681:2:3")},
 	}
-	out := buildMatchLabMapping(pack,whole,files,nil)
+	out := buildMatchLabMapping(pack,whole,nil,files,nil)
 	if !reflect.DeepEqual(out.IMDbIDs,[]string{"tt0460681"}) { t.Fatalf("IMDb IDs: %v",out.IMDbIDs) }
 	if !reflect.DeepEqual(out.Seasons,[]int{2}) { t.Fatalf("seasons: %v",out.Seasons) }
 	if !reflect.DeepEqual(out.Episodes,[]int{1,2,3}) { t.Fatalf("episodes: %v",out.Episodes) }
@@ -36,7 +36,7 @@ func TestMatchLabSingleSeasonEnumeratesEpisodeInterval(t *testing.T) {
 func TestMatchLabSingleSeasonFromVerifiedPackEndpoints(t *testing.T) {
 	pack := torrent_info.TorrentInfo{Hash:"abc",TorrentTitle:"Anime.Title.1-7"}
 	whole := mkSID("tt1234567:1:1","tt1234567:1:7")
-	out := buildMatchLabMapping(pack,whole,nil,nil)
+	out := buildMatchLabMapping(pack,whole,nil,nil,nil)
 	if !reflect.DeepEqual(out.Seasons,[]int{1}) { t.Fatalf("seasons: %v",out.Seasons) }
 	if !reflect.DeepEqual(out.Episodes,[]int{1,2,3,4,5,6,7}) {
 		t.Fatalf("episodes: %v",out.Episodes)
@@ -54,7 +54,7 @@ func TestMatchLabMultiSeasonDropsUnscopedEpisodes(t *testing.T) {
 		{Path:"/Supernatural/S01E01.mkv",Match:mkSID("tt0460681:1:1","tt0460681:1:1")},
 		{Path:"/Supernatural/S03E22.mkv",Match:mkSID("tt0460681:3:22","tt0460681:3:22")},
 	}
-	out := buildMatchLabMapping(pack,whole,files,nil)
+	out := buildMatchLabMapping(pack,whole,nil,files,nil)
 	if !reflect.DeepEqual(out.Seasons,[]int{1,2,3}) { t.Fatalf("seasons: %v",out.Seasons) }
 	if len(out.Episodes) != 0 { t.Fatalf("multi-season must leave episodes blank: %v",out.Episodes) }
 }
@@ -77,7 +77,7 @@ func TestMatchLabMixedAnimeIdentitiesAreIndependent(t *testing.T) {
 			},
 		},
 	}
-	out := buildMatchLabMapping(pack,matchlab.Response{},files,map[string]int{"100":1,"200":2})
+	out := buildMatchLabMapping(pack,matchlab.Response{},nil,files,map[string]int{"100":1,"200":2})
 	if !reflect.DeepEqual(out.IMDbIDs,[]string{"tt1234567","tt2345678"}) { t.Fatalf("IMDb IDs: %v",out.IMDbIDs) }
 	if len(out.Seasons) != 0 || len(out.Episodes) != 0 { t.Fatalf("mixed collection cannot have one global episode range: %+v",out) }
 	if len(out.AniDB) < 2 { t.Fatalf("missing anime mappings: %+v",out.AniDB) }
@@ -93,7 +93,7 @@ func TestMatchLabMixedAnimeIdentitiesAreIndependent(t *testing.T) {
 func TestMatchLabAnonymousAnimeSeasonSentinel(t *testing.T) {
 	pack := torrent_info.TorrentInfo{Hash:"abc",TorrentTitle:"Anime"}
 	match := matchlab.Response{ASIDStart:matchLabPointer("42:7"),ASIDEnd:matchLabPointer("42:7")}
-	out := buildMatchLabMapping(pack,match,nil,nil)
+	out := buildMatchLabMapping(pack,match,nil,nil,nil)
 	found := false
 	for _, a := range out.AniDB {
 		if a.SeasonType == anidb.TorrentSeasonTypeAnime && a.TId == "42" {
@@ -116,4 +116,50 @@ func TestMatchLabCombinedPath(t *testing.T) {
 func TestMatchLabNoInventedFileSID(t *testing.T) {
 	r := mkSID("tt0460681:1:1","tt0460681:1:7")
 	if r.SingleSID() != "" { t.Fatal("cannot assign a range to a single file") }
+}
+
+func TestMatchLabVerifiedAnimeSegmentsDoNotFillGaps(t *testing.T) {
+	pack := torrent_info.TorrentInfo{Hash:"xyz",TorrentTitle:"Anime.E1-E10"}
+	whole := matchlab.Response{
+		SIDStart:matchLabPointer("tt1234567:1:1"), SIDEnd:matchLabPointer("tt1234567:1:10"),
+		ASIDStart:matchLabPointer("42:1"), ASIDEnd:matchLabPointer("42:10"),
+	}
+	segments := []matchlab.EpisodeSegment{
+		{Season:1,StartEpisode:1,EndEpisode:3,AniDBID:"42",StartAnimeEpisode:1,EndAnimeEpisode:3},
+		{Season:1,StartEpisode:8,EndEpisode:10,AniDBID:"42",StartAnimeEpisode:8,EndAnimeEpisode:10},
+	}
+	out := buildMatchLabMapping(pack,whole,segments,nil,map[string]int{"42":1})
+	var exact []int
+	for _, a := range out.AniDB {
+		if a.TId == "42" && a.SeasonType == anidb.TorrentSeasonTypeAnime {
+			exact = append(exact,a.Episodes...)
+		}
+	}
+	if !reflect.DeepEqual(exact,[]int{1,2,3,8,9,10}) {
+		t.Fatalf("crosswalk gap incorrectly filled: %v",exact)
+	}
+}
+
+func TestMatchLabMixedSeasonSegmentsPreserveAniDBIdentity(t *testing.T) {
+	pack := torrent_info.TorrentInfo{Hash:"xyz",TorrentTitle:"One Piece"}
+	files := []matchLabFileResult{
+		{Path:"/ArcA/010.mkv",
+			Match:matchlab.Response{ASIDStart:matchLabPointer("69:10"),ASIDEnd:matchLabPointer("69:10")},
+			Segments:[]matchlab.EpisodeSegment{
+				{Season:3,StartEpisode:7,EndEpisode:7,AniDBID:"69",StartAnimeEpisode:10,EndAnimeEpisode:10},
+			},
+		},
+		{Path:"/ArcB/001.mkv",
+			Match:matchlab.Response{ASIDStart:matchLabPointer("70:1"),ASIDEnd:matchLabPointer("70:1")},
+			Segments:[]matchlab.EpisodeSegment{
+				{Season:4,StartEpisode:1,EndEpisode:1,AniDBID:"70",StartAnimeEpisode:1,EndAnimeEpisode:1},
+			},
+		},
+	}
+	out := buildMatchLabMapping(pack,matchlab.Response{},nil,files,map[string]int{"69":1,"70":2})
+	ids := map[string]bool{}
+	for _, a := range out.AniDB {
+		if a.SeasonType == anidb.TorrentSeasonTypeAnime { ids[a.TId] = true }
+	}
+	if !ids["69"] || !ids["70"] { t.Fatalf("mixed AniDB title IDs missing: %v",ids) }
 }
