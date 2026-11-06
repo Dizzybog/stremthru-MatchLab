@@ -464,7 +464,7 @@ func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevi
 	if _, err = tx.Exec("DELETE FROM anidb_torrent WHERE hash = ?", t.Hash); err != nil { return err }
 	for _, a := range m.AniDB {
 		if _, err = tx.Exec("INSERT INTO anidb_torrent (tid, hash, s_type, s, ep_start, ep_end, eps) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			a.TId, t.Hash, a.SeasonType, a.Season, a.EpisodeStart, a.EpisodeEnd, intsCSV(a.Episodes)); err != nil { return err }
+			a.TId, t.Hash, a.SeasonType, a.Season, a.EpisodeStart, a.EpisodeEnd, a.Episodes); err != nil { return err }
 	}
 
 	for _, f := range m.Files {
