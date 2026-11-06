@@ -228,16 +228,22 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 	// Ignore an unrelated root-level AniDB identity for mixed collections:
 	// file-specific IDs have stronger evidence than a generic parent name.
 	rootASIDMatchesFiles := len(files) == 0
-	if !rootASIDMatchesFiles {
-		for _, file := range files {
-			for _, f := range []*string{file.Match.ASIDStart, file.Match.ASIDEnd} {
-				if f == nil { continue }
-				for _, root := range []*string{whole.ASIDStart, whole.ASIDEnd} {
-					if root != nil && *f == *root { rootASIDMatchesFiles = true }
-				}
-			}
+	fileAnimeFound := false
+	rootAnimeIDs := map[string]struct{}{}
+	for _, v := range []*string{whole.ASIDStart, whole.ASIDEnd} {
+		if v == nil { continue }
+		if id, _, ok := matchlab.ParseASID(*v); ok { rootAnimeIDs[id] = struct{}{} }
+	}
+	for _, file := range files {
+		for _, v := range []*string{file.Match.ASIDStart, file.Match.ASIDEnd} {
+			if v == nil { continue }
+			id, _, ok := matchlab.ParseASID(*v)
+			if !ok { continue }
+			fileAnimeFound = true
+			if _, matched := rootAnimeIDs[id]; matched { rootASIDMatchesFiles = true }
 		}
 	}
+	if !fileAnimeFound { rootASIDMatchesFiles = true }
 	if rootASIDMatchesFiles {
 		addMatchLabAnime(animeGroups, anidbSeasons, whole)
 		addMatchLabSegments(animeGroups, anidbSeasons, wholeSegments)
