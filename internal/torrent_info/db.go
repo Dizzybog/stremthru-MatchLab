@@ -1667,26 +1667,33 @@ func ExistsByHash(hashes []string) (map[string]bool, error) {
 	return exists, nil
 }
 
-// GetMatchLabPendingHashes uses a partial index on the null mapping timestamp.
-// Existing torrents are intentionally eligible after the migration, including
-// titles previously matched by StremThru's local worker.
-func GetMatchLabPendingHashes(limit int) ([]string, error) {
+// MatchLabPendingHash describes a torrent awaiting identity matching.
+// FileRevision is an optimistic lock: fresh stream data during HTTP matching
+// invalidates the in-flight snapshot and schedules a safe retry.
+type MatchLabPendingHash struct {
+	Hash         string
+	FileRevision int64
+}
+
+func GetMatchLabPendingHashes(limit int) ([]MatchLabPendingHash, error) {
 	limit = max(1, min(limit, 500))
 	rows, err := db.Query(
-		"SELECT hash FROM torrent_info WHERE matchlab_mapped_at IS NULL AND t_title = parser_input ORDER BY hash LIMIT ?",
-		limit,
+		"SELECT hash, matchlab_file_revision FROM torrent_info "+
+			"WHERE matchlab_mapped_at IS NULL AND t_title = parser_input "+
+			"AND parser_version = ? ORDER BY hash LIMIT ?",
+		matchlab.ParserVersion, limit,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	hashes := []string{}
+	hashes := []MatchLabPendingHash{}
 	for rows.Next() {
-		var hash string
-		if err := rows.Scan(&hash); err != nil {
+		var item MatchLabPendingHash
+		if err := rows.Scan(&item.Hash, &item.FileRevision); err != nil {
 			return nil, err
 		}
-		hashes = append(hashes, hash)
+		hashes = append(hashes, item)
 	}
 	return hashes, rows.Err()
 }
