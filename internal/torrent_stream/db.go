@@ -632,7 +632,7 @@ func Record(items []InsertData, discardIdx bool) error {
 			if config.Integration.MatchLab.IsEnabled() {
 				// Only touched hashes need another MatchLab pass. Avoid
 				// polling the entire torrent_stream table every cycle.
-				hashes := invalidatedHashes.List()
+				hashes := invalidatedHashes.ToSlice()
 				if len(hashes) > 0 {
 					query, args := db.InStringValues(hashes)
 					_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = NULL WHERE hash " + query, args...)
