@@ -563,9 +563,16 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 			}
 			wg.Wait()
 			if len(errs) > 0 {
-				return errors.Join(errs...)
+				w.Log.Warn("MatchLab deferred failed torrent mappings",
+					"failures", len(errs), "total", len(hashes), "error", errors.Join(errs...))
+				// Continue past isolated bad torrents, but halt a systemic
+				// outage before bombarding the external service.
+				if len(errs)*3 >= len(hashes) {
+					return errors.Join(errs...)
+				}
 			}
-			w.Log.Info("mapped torrents through MatchLab", "count", len(hashes))
+			w.Log.Info("processed torrents through MatchLab",
+				"count", len(hashes), "failures", len(errs))
 			if len(hashes) < 200 { return nil }
 		}
 	}
