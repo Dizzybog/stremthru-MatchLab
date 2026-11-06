@@ -5,16 +5,21 @@ import (
 	"time"
 
 	"github.com/MunifTanjim/go-ptt"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	ti "github.com/MunifTanjim/stremthru/internal/torrent_info"
 )
 
 func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
-	if err := ti.MarkForReparseBelowVersion(9000); err != nil {
+	targetVersion := 9000
+	if matchlab.Enabled() {
+		targetVersion = matchlab.ParserVersion
+	}
+	if err := ti.MarkForReparseBelowVersion(targetVersion); err != nil {
 		panic(err)
 	}
 
 	var parseTorrentInfo = func(w *Worker, t *ti.TorrentInfo) *ti.TorrentInfo {
-		if t.ParserVersion > ptt.Version().Int() {
+		if !matchlab.Enabled() && t.ParserVersion > ptt.Version().Int() {
 			return nil
 		}
 
