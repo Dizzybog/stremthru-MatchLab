@@ -20,8 +20,9 @@ import (
 // A MatchLab pass owns mapping for the entire torrent hash. Per-file identities
 // remain independent, because a single torrent can contain multiple anime.
 type matchLabFileResult struct {
-	Path   string
-	Match  matchlab.Response
+	Path     string
+	Match    matchlab.Response
+	Segments []matchlab.EpisodeSegment
 }
 
 type matchLabMapping struct {
@@ -146,6 +147,38 @@ func addMatchLabAnime(groups map[string]*matchLabAnimeGroup, ids map[string]int,
 	}
 }
 
+func addMatchLabSegments(groups map[string]*matchLabAnimeGroup, seasons map[string]int, segments []matchlab.EpisodeSegment) {
+	for _, segment := range segments {
+		if !segment.Valid() { continue }
+		animeSeason, found := seasons[segment.AniDBID]
+		if !found || animeSeason < 0 { animeSeason = -1 }
+		key := fmt.Sprintf("%s:ani:%d", segment.AniDBID, animeSeason)
+		a := groups[key]
+		if a == nil {
+			a = &matchLabAnimeGroup{
+				id: segment.AniDBID, season: animeSeason,
+				kind: anidb.TorrentSeasonTypeAnime, episode: map[int]struct{}{},
+			}
+			groups[key] = a
+		}
+		for ep := segment.StartAnimeEpisode; ep <= segment.EndAnimeEpisode; ep++ {
+			a.episode[ep] = struct{}{}
+		}
+		tvKey := fmt.Sprintf("%s:tv:%d", segment.AniDBID, segment.Season)
+		tv := groups[tvKey]
+		if tv == nil {
+			tv = &matchLabAnimeGroup{
+				id: segment.AniDBID, season: segment.Season,
+				kind: anidb.TorrentSeasonTypeTV, episode: map[int]struct{}{},
+			}
+			groups[tvKey] = tv
+		}
+		for ep := segment.StartEpisode; ep <= segment.EndEpisode; ep++ {
+			tv.episode[ep] = struct{}{}
+		}
+	}
+}
+
 func sortedInts(set map[int]struct{}) []int {
 	out := make([]int, 0, len(set))
 	for n := range set {
@@ -157,7 +190,7 @@ func sortedInts(set map[int]struct{}) []int {
 
 // buildMatchLabMapping deliberately trusts the external results, never a
 // second local IMDb or AniDB title-search routine.
-func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Response, files []matchLabFileResult, anidbSeasons map[string]int) matchLabMapping {
+func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Response, wholeSegments []matchlab.EpisodeSegment, files []matchLabFileResult, anidbSeasons map[string]int) matchLabMapping {
 	result := matchLabMapping{Files:files, Category:torrent.Category}
 	ids := map[string]struct{}{}
 	coords := map[string][]matchLabSeasonEpisode{}
@@ -168,6 +201,7 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		mergeMatchLabIdentity(fileIDs, coords, file.Match)
 		addMatchLabRange(coords, file.Match)
 		addMatchLabAnime(animeGroups, anidbSeasons, file.Match)
+		addMatchLabSegments(animeGroups, anidbSeasons, file.Segments)
 	}
 	for id := range fileIDs {
 		ids[id] = struct{}{}
@@ -192,6 +226,7 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		}
 	}
 	addMatchLabAnime(animeGroups, anidbSeasons, whole)
+	addMatchLabSegments(animeGroups, anidbSeasons, wholeSegments)
 
 	for id := range ids {
 		result.IMDbIDs = append(result.IMDbIDs, id)
@@ -291,22 +326,44 @@ func matchlabFilePath(torrentTitle string, file torrent_stream.File) string {
 	return strings.TrimRight(torrentTitle, "/") + "/" + strings.TrimLeft(strings.ReplaceAll(file.Path, "\\", "/"), "/")
 }
 
-func matchlabBestFileResult(ctx context.Context, torrentTitle string, file torrent_stream.File, whole matchlab.Response) (matchlab.Response, error) {
-	combined, err := matchlab.Default.Match(ctx, matchlabFilePath(torrentTitle, file))
-	if err != nil { return combined, err }
+func matchlabBestFileResult(ctx context.Context, torrentTitle string, file torrent_stream.File, whole matchlab.Response) (matchlab.Response, string, error) {
+	combinedTitle := matchlabFilePath(torrentTitle, file)
+	combined, err := matchlab.Default.Match(ctx, combinedTitle)
+	if err != nil { return combined, combinedTitle, err }
 	// For anime, a parent folder may refer to a different series in a mixed
 	// release. An independently verified AniDB identity from the leaf wins.
 	if combined.HasAnime() || whole.HasAnime() {
 		leafTitle := strings.TrimLeft(strings.ReplaceAll(file.Path, "\\", "/"), "/")
 		if strings.TrimSpace(leafTitle) != "" {
 			leaf, err := matchlab.Default.Match(ctx, leafTitle)
-			if err != nil { return combined, err }
+			if err != nil { return combined, combinedTitle, err }
 			if leaf.HasAnime() {
-				return leaf, nil
+				return leaf, leafTitle, nil
 			}
 		}
 	}
-	return combined, nil
+	return combined, combinedTitle, nil
+}
+
+func matchlabNeedsDetail(r matchlab.Response) bool {
+	if !r.HasAnime() { return false }
+	if r.ASIDStart != nil && r.ASIDEnd != nil && *r.ASIDStart != *r.ASIDEnd { return true }
+	if r.SIDStart != nil && r.SIDEnd != nil && *r.SIDStart != *r.SIDEnd { return true }
+	return false
+}
+
+func matchlabVerifiedSegments(ctx context.Context, title string, r matchlab.Response) ([]matchlab.EpisodeSegment, error) {
+	if !matchlabNeedsDetail(r) { return nil, nil }
+	d, err := matchlab.Default.Debug(ctx, title)
+	if err != nil { return nil, err }
+	if d.Selected == nil || d.Selected.EpisodeRange == nil { return nil, nil }
+	if r.SIDStart != nil && d.Selected.IMDbID != "" {
+		id, _, _, _, valid := matchlab.ParseSID(*r.SIDStart)
+		if valid && id != d.Selected.IMDbID {
+			return nil, errors.New("MatchLab debug identity changed between requests")
+		}
+	}
+	return d.Selected.EpisodeRange.Segments, nil
 }
 
 // Store changes in one transaction. A stale old IMDb/AniDB mapping must not
@@ -365,19 +422,27 @@ func intsCSV(values []int) string {
 func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files torrent_stream.Files) error {
 	whole, err := matchlab.Default.Match(ctx, t.TorrentTitle)
 	if err != nil { return fmt.Errorf("match torrent name: %w", err) }
+	wholeSegments, err := matchlabVerifiedSegments(ctx, t.TorrentTitle, whole)
+	if err != nil { return fmt.Errorf("resolve torrent anime segments: %w", err) }
 	mappedFiles := make([]matchLabFileResult, 0, len(files))
 	animeIDs := map[string]struct{}{}
 	for _, f := range files {
 		f.Normalize()
 		if !f.IsVideo() || f.Path == "" { continue }
-		r, err := matchlabBestFileResult(ctx, t.TorrentTitle, f, whole)
+		r, resolvedTitle, err := matchlabBestFileResult(ctx, t.TorrentTitle, f, whole)
 		if err != nil { return fmt.Errorf("match file %q: %w", f.Path, err) }
-		mappedFiles = append(mappedFiles, matchLabFileResult{Path:f.Path, Match:r})
+		segments, err := matchlabVerifiedSegments(ctx, resolvedTitle, r)
+		if err != nil { return fmt.Errorf("resolve anime file %q: %w", f.Path, err) }
+		mappedFiles = append(mappedFiles, matchLabFileResult{Path:f.Path, Match:r, Segments:segments})
 		for _, id := range []*string{r.ASIDStart, r.ASIDEnd} {
 			if id == nil { continue }
 			aid, _, ok := matchlab.ParseASID(*id)
 			if ok { animeIDs[aid] = struct{}{} }
 		}
+	}
+	for _, segment := range wholeSegments { animeIDs[segment.AniDBID] = struct{}{} }
+	for _, file := range mappedFiles {
+		for _, segment := range file.Segments { animeIDs[segment.AniDBID] = struct{}{} }
 	}
 	for _, id := range []*string{whole.ASIDStart, whole.ASIDEnd} {
 		if id == nil { continue }
@@ -395,7 +460,7 @@ func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files to
 		// Absence of local anime title metadata must not stop MatchLab from
 		// supplying ASID. Preserve unknown season=-1 (query sentinel).
 	}
-	mapping := buildMatchLabMapping(t, whole, mappedFiles, seasonMap)
+	mapping := buildMatchLabMapping(t, whole, wholeSegments, mappedFiles, seasonMap)
 	return saveMatchLabMapping(t, mapping)
 }
 
