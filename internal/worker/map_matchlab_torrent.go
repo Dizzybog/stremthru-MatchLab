@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -358,6 +359,20 @@ func matchlabBestFileResult(ctx context.Context, torrentTitle string, file torre
 	combinedTitle := matchlabFilePath(torrentTitle, file)
 	combined, err := matchlab.Default.Match(ctx, combinedTitle)
 	if err != nil { return combined, combinedTitle, err }
+	// Nested folders named "Season 2" or "TV" can incorrectly supply
+	// generic context. Preserve the raw torrent title while retaining the
+	// file's exact leaf episode when no identity was returned.
+	if combined.SIDStart == nil && combined.ASIDStart == nil {
+		leaf := path.Base(strings.ReplaceAll(file.Path, "\\", "/"))
+		fallbackTitle := strings.TrimRight(torrentTitle, "/") + "/" + leaf
+		if leaf != "." && leaf != "" && fallbackTitle != combinedTitle {
+			fallback, err := matchlab.Default.Match(ctx, fallbackTitle)
+			if err != nil { return combined, combinedTitle, err }
+			if fallback.SIDStart != nil || fallback.ASIDStart != nil {
+				combined, combinedTitle = fallback, fallbackTitle
+			}
+		}
+	}
 	// For anime, a parent folder may refer to a different series in a mixed
 	// release. An independently verified AniDB identity from the leaf wins.
 	if combined.HasAnime() || whole.HasAnime() {
