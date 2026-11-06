@@ -1015,7 +1015,7 @@ var query_upsert_parsed_before_values = fmt.Sprintf(
 )
 var query_upsert_parsed_values_placeholder = fmt.Sprintf("(%s)", util.RepeatJoin("?", len(Columns), ","))
 var query_upsert_parsed_on_confict = fmt.Sprintf(
-	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s)`,
+	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s), matchlab_mapped_at = NULL`,
 	Column.Hash,
 	db.JoinColumnNames(upsert_parsed_on_conflict_columns...),
 	strings.Join(
@@ -1643,6 +1643,30 @@ func ExistsByHash(hashes []string) (map[string]bool, error) {
 	return exists, nil
 }
 
+// GetMatchLabPendingHashes uses a partial index on the null mapping timestamp.
+// Existing torrents are intentionally eligible after the migration, including
+// titles previously matched by StremThru's local worker.
+func GetMatchLabPendingHashes(limit int) ([]string, error) {
+	limit = max(1, min(limit, 500))
+	rows, err := db.Query(
+		"SELECT hash FROM torrent_info WHERE matchlab_mapped_at IS NULL AND t_title = parser_input ORDER BY hash LIMIT ?",
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	hashes := []string{}
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, rows.Err()
+}
+
 var query_get_imdb_unmapped_hashes = fmt.Sprintf(
 	"SELECT ti.%s FROM %s ti LEFT JOIN %s ito ON ti.%s = ito.%s WHERE ti.%s = ti.%s AND ito.%s IS NULL LIMIT ?",
 	Column.Hash,
@@ -1800,10 +1824,11 @@ func GetBasicInfoByHash(hashes []string) (map[string]BasicInfo, error) {
 }
 
 var query_mark_for_reparse_below_version = fmt.Sprintf(
-	`UPDATE %s SET %s = '' WHERE %s < ?`,
+	`UPDATE %s SET %s = '' WHERE %s < ? AND %s != ''`,
 	TableName,
 	Column.ParserInput,
 	Column.ParserVersion,
+	Column.ParserInput,
 )
 
 func MarkForReparseBelowVersion(version int) error {
