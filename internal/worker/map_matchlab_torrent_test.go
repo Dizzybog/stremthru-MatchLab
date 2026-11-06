@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MunifTanjim/stremthru/internal/anidb"
 	"github.com/MunifTanjim/stremthru/internal/matchlab"
@@ -214,5 +215,17 @@ func TestMatchLabRepresentativeUsesHighestSeasonInMultiSeasonPack(t *testing.T) 
 	}
 	if got := representativeSeriesID(files); got != "tt2222222" {
 		t.Fatalf("highest season should identify series, got %q",got)
+	}
+}
+
+func TestMatchLabTimeoutGrowsForLargePacks(t *testing.T) {
+	if got:=matchLabTorrentTimeout(1); got!=2*time.Minute {
+		t.Fatalf("small file timeout = %s",got)
+	}
+	if got:=matchLabTorrentTimeout(800); got<=2*time.Minute {
+		t.Fatalf("large pack timeout too short = %s",got)
+	}
+	if got:=matchLabTorrentTimeout(50000); got!=20*time.Minute {
+		t.Fatalf("timeout must be capped: %s",got)
 	}
 }
