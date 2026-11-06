@@ -1,6 +1,7 @@
 package torrent_info
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/config"
 	"github.com/MunifTanjim/stremthru/internal/db"
 	"github.com/MunifTanjim/stremthru/internal/imdb_torrent"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	ts "github.com/MunifTanjim/stremthru/internal/torrent_stream"
 	"github.com/MunifTanjim/stremthru/internal/util"
 	"github.com/MunifTanjim/stremthru/store"
@@ -254,7 +256,13 @@ func (ti *TorrentInfo) ForceParse() error {
 }
 
 func (ti *TorrentInfo) parse() error {
-	r, err := util.ParseTorrentTitle(ti.TorrentTitle)
+	var r *ptt.Result
+	var err error
+	if matchlab.Enabled() {
+		r, err = matchlab.Default.Parse(context.Background(), ti.TorrentTitle)
+	} else {
+		r, err = util.ParseTorrentTitle(ti.TorrentTitle)
+	}
 	if err != nil {
 		return err
 	}
@@ -274,6 +282,9 @@ func (ti *TorrentInfo) parse() error {
 
 	ti.ParsedAt = db.Timestamp{Time: time.Now()}
 	ti.ParserVersion = ptt.Version().Int()
+	if matchlab.Enabled() {
+		ti.ParserVersion = matchlab.ParserVersion
+	}
 	ti.ParserInput = ti.TorrentTitle
 
 	ti.Audio = r.Audio
