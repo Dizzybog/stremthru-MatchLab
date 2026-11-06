@@ -250,7 +250,7 @@ func NewClient(rawURL string, timeout time.Duration, concurrency int) (*Client, 
 	return &Client{
 		base: u,
 		http: &http.Client{
-			Timeout: timeout,
+			Timeout:       timeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		slots: make(chan struct{}, concurrency),
@@ -349,7 +349,7 @@ func (s EpisodeSegment) Valid() bool {
 
 type DebugMatch struct {
 	Selected *struct {
-		IMDbID string `json:"imdb_id"`
+		IMDbID       string `json:"imdb_id"`
 		EpisodeRange *struct {
 			Complete      bool             `json:"complete"`
 			UnmappedCount int              `json:"unmapped_count"`
@@ -374,15 +374,23 @@ func (c *Client) Debug(ctx context.Context, title string) (*DebugMatch, error) {
 }
 
 func (c *Client) Health(ctx context.Context) error {
-	if c == nil { return errors.New("MatchLab is not configured") }
+	if c == nil {
+		return errors.New("MatchLab is not configured")
+	}
 	u := *c.base
 	u.Path += "/health/ready"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	res, err := c.http.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK { return fmt.Errorf("MatchLab is not ready: HTTP %d", res.StatusCode) }
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("MatchLab is not ready: HTTP %d", res.StatusCode)
+	}
 	return nil
 }
 

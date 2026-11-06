@@ -54,7 +54,7 @@ func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
 				if matchlab.Enabled() {
 					type parsedResult struct {
 						info *ti.TorrentInfo
-						err error
+						err  error
 					}
 					results := make([]parsedResult, len(cTInfos))
 					sem := make(chan struct{}, 8)
@@ -67,7 +67,7 @@ func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
 							defer func() { <-sem }()
 							t := &cTInfos[i]
 							err := t.ForceParse()
-							results[i] = parsedResult{info:t, err:err}
+							results[i] = parsedResult{info: t, err: err}
 						}(i)
 					}
 					wg.Wait()
