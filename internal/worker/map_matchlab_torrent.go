@@ -204,6 +204,26 @@ func sortedInts(set map[int]struct{}) []int {
 	return out
 }
 
+// representativeSeriesID returns the file whose verified last episode has
+// the highest season, then episode. Only comparisons of real SID coordinates
+// are allowed; filename numbering is never re-parsed locally.
+func representativeSeriesID(files []matchLabFileResult) string {
+	selected := ""
+	bestSeason, bestEpisode := -1, -1
+	for _, file := range files {
+		for _, endpoint := range []*string{file.Match.SIDEnd, file.Match.SIDStart} {
+			if endpoint == nil { continue }
+			id, season, episode, has, ok := matchlab.ParseSID(*endpoint)
+			if !has || !ok { continue }
+			if season > bestSeason || (season == bestSeason && episode > bestEpisode) ||
+				(season == bestSeason && episode == bestEpisode && (selected == "" || id < selected)) {
+				selected, bestSeason, bestEpisode = id, season, episode
+			}
+		}
+	}
+	return selected
+}
+
 // buildMatchLabMapping deliberately trusts the external results, never a
 // second local IMDb or AniDB title-search routine.
 func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Response, wholeSegments []matchlab.EpisodeSegment, files []matchLabFileResult, anidbSeasons map[string]int) matchLabMapping {
@@ -218,6 +238,26 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		addMatchLabRange(coords, file.Match)
 		addMatchLabAnime(animeGroups, anidbSeasons, file.Match)
 		addMatchLabSegments(animeGroups, anidbSeasons, file.Segments)
+	}
+	fileAnime := false
+	for _, file := range files {
+		if file.Match.HasAnime() || len(file.Segments) > 0 {
+			fileAnime = true
+			break
+		}
+	}
+	if len(fileIDs) > 1 && !fileAnime {
+		// Ordinary season packs should identify one main TV series. The
+		// highest verified season/episode wins when candidates disagree.
+		// Mixed anime packs are exempt because each file may be different.
+		if representative := representativeSeriesID(files); representative != "" {
+			fileIDs = map[string]struct{}{representative: {}}
+			for id := range coords {
+				if id != representative {
+					delete(coords, id)
+				}
+			}
+		}
 	}
 	for id := range fileIDs {
 		ids[id] = struct{}{}
