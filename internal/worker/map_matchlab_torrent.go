@@ -177,6 +177,21 @@ func addMatchLabSegments(groups map[string]*matchLabAnimeGroup, seasons map[stri
 		for ep := segment.StartEpisode; ep <= segment.EndEpisode; ep++ {
 			tv.episode[ep] = struct{}{}
 		}
+		if segment.StartAbsolute != nil && segment.EndAbsolute != nil {
+			key := fmt.Sprintf("%s:abs:%d", segment.AniDBID, segment.Season)
+			absolute := groups[key]
+			if absolute == nil {
+				absolute = &matchLabAnimeGroup{
+					id: segment.AniDBID, season: segment.Season,
+					kind: anidb.TorrentSeasonTypeAbsolute,
+					episode: map[int]struct{}{},
+				}
+				groups[key] = absolute
+			}
+			for ep := *segment.StartAbsolute; ep <= *segment.EndAbsolute; ep++ {
+				absolute.episode[ep] = struct{}{}
+			}
+		}
 	}
 }
 
