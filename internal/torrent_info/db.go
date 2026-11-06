@@ -1680,6 +1680,7 @@ func GetMatchLabPendingHashes(limit int) ([]MatchLabPendingHash, error) {
 	rows, err := db.Query(
 		"SELECT hash, matchlab_file_revision FROM torrent_info "+
 			"WHERE matchlab_mapped_at IS NULL AND t_title = parser_input "+
+			"AND (matchlab_retry_at IS NULL OR matchlab_retry_at <= "+db.CurrentTimestamp+") "+
 			"AND parser_version = ? ORDER BY hash LIMIT ?",
 		matchlab.ParserVersion, limit,
 	)
@@ -1696,6 +1697,17 @@ func GetMatchLabPendingHashes(limit int) ([]MatchLabPendingHash, error) {
 		hashes = append(hashes, item)
 	}
 	return hashes, rows.Err()
+}
+
+// RetryMatchLabHash schedules retry after a transport or database error.
+// Guarding by revision avoids delaying a newer file snapshot.
+func RetryMatchLabHash(hash string, fileRevision int64, after time.Duration) error {
+	when := db.Timestamp{Time: time.Now().Add(after)}
+	_, err := db.Exec("UPDATE torrent_info SET matchlab_retry_at = ? "+
+		"WHERE hash = ? AND matchlab_file_revision = ? AND matchlab_mapped_at IS NULL",
+		when, hash, fileRevision,
+	)
+	return err
 }
 
 var query_get_imdb_unmapped_hashes = fmt.Sprintf(
