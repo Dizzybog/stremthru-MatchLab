@@ -577,6 +577,13 @@ func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files to
 	return saveMatchLabMapping(t, mapping, fileRevision)
 }
 
+// Very large torrent packs need more time than single-episode requests.
+// Keep a hard cap so an unhealthy server cannot block a worker forever.
+func matchLabTorrentTimeout(fileCount int) time.Duration {
+	extra := time.Duration(max(0, fileCount-100)) * 250 * time.Millisecond
+	return min(20*time.Minute, 2*time.Minute+extra)
+}
+
 // The existing map-imdb-torrent worker slot becomes the sole mapping
 // executor. It does not require local IMDb or AniDB datasets to have synced.
 func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
@@ -613,7 +620,7 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 					defer func() { <-sem }()
 					// A deadline bounds all requests of a torrent, not each
 					// API call independently.
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					ctx, cancel := context.WithTimeout(context.Background(), matchLabTorrentTimeout(len(files)))
 					defer cancel()
 					if err := doMatchLabTorrent(ctx, t, files, revision); err != nil {
 						// A poison torrent or one enormous pack must not
