@@ -397,7 +397,7 @@ func matchlabVerifiedSegments(ctx context.Context, title string, r matchlab.Resp
 // Store changes in one transaction. A stale old IMDb/AniDB mapping must not
 // survive a new authoritative MatchLab pass, and a failed HTTP request must
 // never create a false no-match.
-func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping) error {
+func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevision int64) error {
 	tx, err := db.Begin()
 	if err != nil { return err }
 	defer tx.Rollback()
@@ -406,8 +406,9 @@ func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping) error {
 	episodes := intsCSV(m.Episodes)
 	res, err := tx.Exec(
 		"UPDATE torrent_info SET seasons = ?, episodes = ?, category = ?, matchlab_mapped_at = "+db.CurrentTimestamp+", updated_at = "+db.CurrentTimestamp+
-			" WHERE hash = ? AND t_title = ? AND parser_input = ? AND matchlab_mapped_at IS NULL",
-		seasons, episodes, m.Category, t.Hash, t.TorrentTitle, t.TorrentTitle,
+			" WHERE hash = ? AND t_title = ? AND parser_input = ? AND matchlab_mapped_at IS NULL"+
+			" AND parser_version = ? AND matchlab_file_revision = ?",
+		seasons, episodes, m.Category, t.Hash, t.TorrentTitle, t.TorrentTitle, matchlab.ParserVersion, fileRevision,
 	)
 	if err != nil { return err }
 	n, err := res.RowsAffected()
@@ -447,7 +448,7 @@ func intsCSV(values []int) string {
 	return strings.Join(out, ",")
 }
 
-func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files torrent_stream.Files) error {
+func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files torrent_stream.Files, fileRevision int64) error {
 	whole, err := matchlab.Default.Match(ctx, t.TorrentTitle)
 	if err != nil { return fmt.Errorf("match torrent name: %w", err) }
 	wholeSegments, err := matchlabVerifiedSegments(ctx, t.TorrentTitle, whole)
@@ -489,7 +490,7 @@ func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files to
 		// supplying ASID. Preserve unknown season=-1 (query sentinel).
 	}
 	mapping := buildMatchLabMapping(t, whole, wholeSegments, mappedFiles, seasonMap)
-	return saveMatchLabMapping(t, mapping)
+	return saveMatchLabMapping(t, mapping, fileRevision)
 }
 
 // The existing map-imdb-torrent worker slot becomes the sole mapping
@@ -500,9 +501,13 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 			return err
 		}
 		for {
-			hashes, err := torrent_info.GetMatchLabPendingHashes(200)
+			pending, err := torrent_info.GetMatchLabPendingHashes(200)
 			if err != nil { return err }
-			if len(hashes) == 0 { return nil }
+			if len(pending) == 0 { return nil }
+			hashes := make([]string, len(pending))
+			for i, entry := range pending {
+				hashes[i] = entry.Hash
+			}
 			tInfos, err := torrent_info.GetByHashes(hashes)
 			if err != nil { return err }
 			allFiles, err := torrent_stream.GetFilesByHashes(hashes)
@@ -513,24 +518,25 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 			var wg sync.WaitGroup
 			var mutex sync.Mutex
 			var errs []error
-			for _, hash := range hashes {
+			for _, entry := range pending {
+				hash := entry.Hash
 				t, ok := tInfos[hash]
 				if !ok || !t.IsParsed() { continue }
 				wg.Add(1)
 				sem <- struct{}{}
-				go func(hash string, t torrent_info.TorrentInfo, files torrent_stream.Files) {
+				go func(hash string, t torrent_info.TorrentInfo, files torrent_stream.Files, revision int64) {
 					defer wg.Done()
 					defer func() { <-sem }()
 					// A deadline bounds all requests of a torrent, not each
 					// API call independently.
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 					defer cancel()
-					if err := doMatchLabTorrent(ctx, t, files); err != nil {
+					if err := doMatchLabTorrent(ctx, t, files, revision); err != nil {
 						mutex.Lock()
 						errs = append(errs, fmt.Errorf("%s: %w", hash, err))
 						mutex.Unlock()
 					}
-				}(hash, t, allFiles[hash])
+				}(hash, t, allFiles[hash], entry.FileRevision)
 			}
 			wg.Wait()
 			if len(errs) > 0 {
