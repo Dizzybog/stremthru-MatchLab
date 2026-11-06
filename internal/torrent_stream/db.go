@@ -635,7 +635,7 @@ func Record(items []InsertData, discardIdx bool) error {
 				hashes := invalidatedHashes.ToSlice()
 				if len(hashes) > 0 {
 					query, args := db.InStringValues(hashes)
-					_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = NULL WHERE hash " + query, args...)
+					_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_file_revision = matchlab_file_revision + 1 WHERE hash " + query, args...)
 					if err != nil {
 						errs = append(errs, err)
 					}
