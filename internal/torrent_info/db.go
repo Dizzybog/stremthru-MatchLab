@@ -1039,7 +1039,7 @@ var query_upsert_parsed_before_values = fmt.Sprintf(
 )
 var query_upsert_parsed_values_placeholder = fmt.Sprintf("(%s)", util.RepeatJoin("?", len(Columns), ","))
 var query_upsert_parsed_on_confict = fmt.Sprintf(
-	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s), matchlab_mapped_at = NULL`,
+	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s), matchlab_mapped_at = NULL, matchlab_retry_at = NULL`,
 	Column.Hash,
 	db.JoinColumnNames(upsert_parsed_on_conflict_columns...),
 	strings.Join(
