@@ -468,6 +468,9 @@ func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files to
 // executor. It does not require local IMDb or AniDB datasets to have synced.
 func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 	conf.Executor = func(w *Worker) error {
+		if err := matchlab.Default.Health(context.Background()); err != nil {
+			return err
+		}
 		for {
 			hashes, err := torrent_info.GetMatchLabPendingHashes(200)
 			if err != nil { return err }
