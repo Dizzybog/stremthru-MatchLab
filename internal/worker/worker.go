@@ -79,7 +79,12 @@ var WorkerDetailsById = map[string]*WorkerDetail{
 		Title: "Sync DMM Hashlist",
 	},
 	"map-imdb-torrent": {
-		Title: "Map IMDB Torrent",
+		Title: func() string {
+			if config.Integration.MatchLab.IsEnabled() {
+				return "Map IMDb/AniDB via MatchLab"
+			}
+			return "Map IMDB Torrent"
+		}(),
 	},
 	"pull-magnet-cache": {
 		Title: "Pull Magnet Cache",
