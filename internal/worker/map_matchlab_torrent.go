@@ -225,8 +225,23 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 			}
 		}
 	}
-	addMatchLabAnime(animeGroups, anidbSeasons, whole)
-	addMatchLabSegments(animeGroups, anidbSeasons, wholeSegments)
+	// Ignore an unrelated root-level AniDB identity for mixed collections:
+	// file-specific IDs have stronger evidence than a generic parent name.
+	rootASIDMatchesFiles := len(files) == 0
+	if !rootASIDMatchesFiles {
+		for _, file := range files {
+			for _, f := range []*string{file.Match.ASIDStart, file.Match.ASIDEnd} {
+				if f == nil { continue }
+				for _, root := range []*string{whole.ASIDStart, whole.ASIDEnd} {
+					if root != nil && *f == *root { rootASIDMatchesFiles = true }
+				}
+			}
+		}
+	}
+	if rootASIDMatchesFiles {
+		addMatchLabAnime(animeGroups, anidbSeasons, whole)
+		addMatchLabSegments(animeGroups, anidbSeasons, wholeSegments)
+	}
 
 	for id := range ids {
 		result.IMDbIDs = append(result.IMDbIDs, id)
@@ -301,6 +316,13 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 	}
 	if len(result.Seasons) == 1 && len(result.Episodes) > 2048 {
 		result.Episodes = []int{}
+	}
+	if torrent.Category != torrent_info.TorrentInfoCategoryXXX &&
+		(len(result.Seasons) > 0 || len(result.Episodes) > 0) {
+		result.Category = torrent_info.TorrentInfoCategorySeries
+	}
+	if len(ids) == 0 && len(animeGroups) > 0 && result.Category == "" {
+		result.Category = torrent_info.TorrentInfoCategorySeries
 	}
 
 	for _, group := range animeGroups {
