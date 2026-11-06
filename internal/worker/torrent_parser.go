@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"sync"
 	"time"
@@ -72,18 +71,18 @@ func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
 						}(i)
 					}
 					wg.Wait()
-					var parseErrors []error
-					for _, result := range results {
+					for i, result := range results {
 						if result.err != nil {
-							parseErrors = append(parseErrors, result.err)
+							log.Warn("MatchLab parser failed; retry deferred",
+								"title", cTInfos[i].TorrentTitle, "error", result.err)
+							if err := ti.RetryMatchLabParse(
+								cTInfos[i].Hash, cTInfos[i].TorrentTitle, 5*time.Minute,
+							); err != nil {
+								return err
+							}
 						} else {
 							parsedTInfos = append(parsedTInfos, result.info)
 						}
-					}
-					// Transport failures must not silently commit partial
-					// mapping state; retry on the next scheduler run.
-					if len(parseErrors) > 0 {
-						return errors.Join(parseErrors...)
 					}
 				} else {
 					for i := range cTInfos {
