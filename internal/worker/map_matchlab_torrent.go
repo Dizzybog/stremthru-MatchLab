@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -424,6 +423,3 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 	return NewWorker(conf)
 }
 
-// Avoid accidentally using path.Base() on strings with backslashes; MatchLab
-// gets the full hierarchy and retains the genuine leaf episode.
-var _ = path.Base
