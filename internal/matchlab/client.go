@@ -328,6 +328,8 @@ type EpisodeSegment struct {
 	AniDBID           string `json:"anidb_id"`
 	StartAnimeEpisode int    `json:"start_anime_episode"`
 	EndAnimeEpisode   int    `json:"end_anime_episode"`
+	StartAbsolute     *int   `json:"start_absolute"`
+	EndAbsolute       *int   `json:"end_absolute"`
 }
 
 func (s EpisodeSegment) Valid() bool {
@@ -338,7 +340,11 @@ func (s EpisodeSegment) Valid() bool {
 		s.StartEpisode >= 0 && s.EndEpisode >= s.StartEpisode &&
 		s.EndEpisode-s.StartEpisode <= 2047 &&
 		s.StartAnimeEpisode >= 0 && s.EndAnimeEpisode >= s.StartAnimeEpisode &&
-		s.EndAnimeEpisode-s.StartAnimeEpisode <= 2047
+		s.EndAnimeEpisode-s.StartAnimeEpisode <= 2047 &&
+		((s.StartAbsolute == nil && s.EndAbsolute == nil) ||
+			(s.StartAbsolute != nil && s.EndAbsolute != nil &&
+				*s.StartAbsolute >= 0 && *s.EndAbsolute >= *s.StartAbsolute &&
+				*s.EndAbsolute-*s.StartAbsolute <= 2047))
 }
 
 type DebugMatch struct {
