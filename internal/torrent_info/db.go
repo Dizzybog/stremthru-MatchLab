@@ -934,13 +934,14 @@ var get_local_reparse_query = fmt.Sprintf(
 )
 
 var get_matchlab_unparsed_query = fmt.Sprintf(
-	"SELECT %s FROM %s WHERE %s != %s OR %s != %d LIMIT ?",
+	"SELECT %s FROM %s WHERE (%s != %s OR %s != %d) AND (matchlab_parse_retry_at IS NULL OR matchlab_parse_retry_at <= %s) LIMIT ?",
 	db.JoinColumnNames(Columns...),
 	TableName,
 	Column.TorrentTitle,
 	Column.ParserInput,
 	Column.ParserVersion,
 	matchlab.ParserVersion,
+	db.CurrentTimestamp,
 )
 
 func GetUnparsed(limit int) ([]TorrentInfo, error) {
@@ -1039,7 +1040,7 @@ var query_upsert_parsed_before_values = fmt.Sprintf(
 )
 var query_upsert_parsed_values_placeholder = fmt.Sprintf("(%s)", util.RepeatJoin("?", len(Columns), ","))
 var query_upsert_parsed_on_confict = fmt.Sprintf(
-	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s), matchlab_mapped_at = NULL, matchlab_retry_at = NULL`,
+	` ON CONFLICT (%s) DO UPDATE SET (%s) = (%s), (%s, %s) = (%s, %s), matchlab_mapped_at = NULL, matchlab_retry_at = NULL, matchlab_parse_retry_at = NULL`,
 	Column.Hash,
 	db.JoinColumnNames(upsert_parsed_on_conflict_columns...),
 	strings.Join(
@@ -1697,6 +1698,17 @@ func GetMatchLabPendingHashes(limit int) ([]MatchLabPendingHash, error) {
 		hashes = append(hashes, item)
 	}
 	return hashes, rows.Err()
+}
+
+// RetryMatchLabParse defers an invalid release or a temporarily failing API.
+// The title check prevents an old request from suppressing a changed title.
+func RetryMatchLabParse(hash string, title string, after time.Duration) error {
+	when := db.Timestamp{Time: time.Now().Add(after)}
+	_, err := db.Exec("UPDATE torrent_info SET matchlab_parse_retry_at = ? "+
+		"WHERE hash = ? AND t_title = ? AND parser_version != ?",
+		when, hash, title, matchlab.ParserVersion,
+	)
+	return err
 }
 
 // RetryMatchLabHash schedules retry after a transport or database error.
