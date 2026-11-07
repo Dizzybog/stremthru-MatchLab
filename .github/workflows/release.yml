@@ -9,6 +9,9 @@ permissions:
 
 jobs:
   release:
+    # The upstream release job requires an upstream-specific GitHub App and
+    # publishes upstream packages. This fork uses matchlab-docker.yml instead.
+    if: github.repository == 'MunifTanjim/stremthru'
     name: release
     runs-on: ubuntu-latest
     steps:
