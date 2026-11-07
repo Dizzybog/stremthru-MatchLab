@@ -57,7 +57,7 @@ func getIndexerSourceLink(userScope, hash string) string {
 }
 
 func init() {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		return
 	}
 	for i := 0; i < 3; i++ {
@@ -88,7 +88,7 @@ func init() {
 
 // queueIndexerRefresh never delays a stream response or queues unbounded work.
 func queueIndexerRefresh(ctx *Ctx, contentType, streamId, userScope string) {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		return
 	}
 	if len(ctx.Indexers) == 0 {
