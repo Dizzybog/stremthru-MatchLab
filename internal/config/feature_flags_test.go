@@ -17,7 +17,7 @@ func TestAnimeAndPerformanceFeatureModes(t *testing.T) {
 		{name: "explicitly disable anime", env: "+performance,-anime", wantFast: true, wantTorz: true},
 		{name: "explicitly disable performance", env: "+anime,-performance", wantAnime: true, wantTorz: true},
 		{name: "whitelist torz only", env: "torz", wantTorz: true},
-		{name: "performance without torz", env: "performance", wantFast: false, wantTorz: false},
+		{name: "performance without torz", env: "+performance,-torz", wantFast: false, wantTorz: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
