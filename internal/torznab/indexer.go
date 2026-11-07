@@ -132,7 +132,7 @@ func (sti stremThruIndexer) Search(q Query) ([]FeedItem, error) {
 	for _, imdbId := range imdbIds {
 		wg.Go(func() {
 			torznab_indexer_syncinfo.QueueJob(imdbId + sidSuffix)
-			if config.Feature.IsEnabled(config.FeaturePerformance) {
+			if config.Feature.HasPerformance() {
 				buddy.QueuePullTorrentsByStremId(imdbId)
 			} else if config.PeerFlag.Lazy {
 				go buddy.PullTorrentsByStremId(imdbId, "")
@@ -152,7 +152,7 @@ func (sti stremThruIndexer) Search(q Query) ([]FeedItem, error) {
 			stremId := imdbId + sidSuffix
 			var hashes []string
 			var err error
-			if config.Feature.IsEnabled(config.FeaturePerformance) {
+			if config.Feature.HasPerformance() {
 				hashes, err = torrent_info.ListHashesByStremIdFast(stremId)
 			} else {
 				hashes, err = torrent_info.ListHashesByStremId(stremId)
@@ -182,7 +182,7 @@ func (sti stremThruIndexer) Search(q Query) ([]FeedItem, error) {
 
 	var tInfoByHash map[string]torrent_info.TorrentInfo
 	var err error
-	if config.Feature.IsEnabled(config.FeaturePerformance) {
+	if config.Feature.HasPerformance() {
 		tInfoByHash, err = torrent_info.GetForTorznab(allHashes)
 	} else {
 		tInfoByHash, err = torrent_info.GetByHashes(allHashes)
