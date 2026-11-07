@@ -722,24 +722,10 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 
 	var isCachedByHash map[string]string
 	var hasErrByStoreCode map[string]struct{}
-	var checkMagnetError error
 	if !isP2P && len(hashes) > 0 {
-		cmRes := ud.CheckMagnet(&store.CheckMagnetParams{
-			Magnets:  hashes,
-			ClientIP: ctx.ClientIP,
-			SId:      id,
-		}, ctx.Log)
-		if cmRes.HasErr && len(cmRes.ByHash) == 0 {
-			checkMagnetError = errors.Join(cmRes.Err...)
-		} else {
-			isCachedByHash = cmRes.ByHash
-			hasErrByStoreCode = cmRes.HasErrByStoreCode
-		}
-	}
-
-	if checkMagnetError != nil {
-		SendError(w, r, checkMagnetError)
-		return
+		// Reuse confirmed cached availability; never wait for remote providers
+		// before answering this stream request.
+		isCachedByHash, hasErrByStoreCode = getCachedAndQueueAvailability(ud, ctx, eud, id, hashes)
 	}
 
 	wrappedStreams = filterStreams(wrappedStreams, filter)
