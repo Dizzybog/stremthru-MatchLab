@@ -15,7 +15,7 @@ func TestAniDBHashesWithNoLocalSeasonMetadata(t *testing.T) {
 	hashKnown := strings.Repeat("a", 40)
 	hashUnknown := strings.Repeat("b", 40)
 	for _, row := range []struct {
-		hash string
+		hash   string
 		season int
 	}{
 		{hashKnown, 1},
