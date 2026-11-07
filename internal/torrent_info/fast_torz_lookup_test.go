@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MunifTanjim/stremthru/internal/db"
 	ts "github.com/MunifTanjim/stremthru/internal/torrent_stream"
 	"github.com/stretchr/testify/require"
 )
@@ -27,6 +28,10 @@ func TestFastTorzLookupOnlyFetchesMappedFileAndFeedColumns(t *testing.T) {
 	}
 	require.NoError(t, Upsert([]TorrentInfoInsertData{movie}, TorrentInfoCategorySeries, true))
 	ts.TagStremId(hash, "/Example.Show.S01E02.mkv", "tt1234567:1:2")
+	// Indexes are intentionally unknown after source ingestion. Simulate a
+	// resolved file index as supplied later by the metadata/availability worker.
+	_, err := db.Exec("UPDATE torrent_stream SET i = ? WHERE h = ? AND p = ?", 1, hash, "/Example.Show.S01E02.mkv")
+	require.NoError(t, err)
 
 	matched, err := ts.GetMatchingFilesByHashes([]string{hash}, "tt1234567:1:2")
 	require.NoError(t, err)
