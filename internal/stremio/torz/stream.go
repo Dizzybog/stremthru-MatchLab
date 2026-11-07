@@ -735,15 +735,37 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 
 	isP2P := ud.IsP2P()
 
+	// Keep the fast database-only torrent lookup, but do not return streams
+	// while the debrid cache state is still unknown. Only check torrents that
+	// survived the user's filters, and only check each hash once.
+	wrappedStreams = filterStreams(wrappedStreams, filter)
+
 	var isCachedByHash map[string]string
 	var hasErrByStoreCode map[string]struct{}
-	if !isP2P && len(hashes) > 0 {
-		// Reuse confirmed cached availability; never wait for remote providers
-		// before answering this stream request.
-		isCachedByHash, hasErrByStoreCode = getCachedAndQueueAvailability(ud, ctx, eud, id, hashes)
+	if !isP2P {
+		visibleHashes := debridCandidateHashes(wrappedStreams)
+		if len(visibleHashes) > 0 {
+			availability, err := awaitDebridAvailability(func() debridAvailability {
+				result := ud.CheckMagnet(&store.CheckMagnetParams{
+					Magnets:  visibleHashes,
+					ClientIP: ctx.ClientIP,
+					SId:      id,
+				}, ctx.Log)
+				return debridAvailability{
+					ByHash:       result.ByHash,
+					FailedStores: result.HasErrByStoreCode,
+					Err:          result.Err,
+					HasErr:       result.HasErr,
+				}
+			})
+			if err != nil {
+				SendError(w, r, err)
+				return
+			}
+			isCachedByHash = availability.ByHash
+			hasErrByStoreCode = availability.FailedStores
+		}
 	}
-
-	wrappedStreams = filterStreams(wrappedStreams, filter)
 
 	stremio_transformer.SortStreams(wrappedStreams, ud.Sort)
 
