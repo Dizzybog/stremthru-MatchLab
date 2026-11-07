@@ -1775,6 +1775,48 @@ func ExistsByHash(hashes []string) (map[string]bool, error) {
 	return exists, nil
 }
 
+// ResetMatchLabIdentitiesForNativeMatching clears identity data only for
+// hashes that are about to be reparsed by Go-PTT after disconnecting MatchLab.
+// Parse metadata and identity mappings are intentionally separate: a locally
+// parsed torrent must not keep MatchLab's authoritative IMDb/AniDB mappings
+// and thereby be skipped by native IMDb/AniDB matching workers.
+// The operation is transactional and bounded to the successfully parsed hashes.
+func ResetMatchLabIdentitiesForNativeMatching(hashes []string) error {
+	if len(hashes) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for chunk := range slices.Chunk(hashes, 200) {
+		cond, args := db.InStringValues(chunk)
+		if _, err := tx.Exec("DELETE FROM imdb_torrent WHERE hash "+cond, args...); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM anidb_torrent WHERE hash "+cond, args...); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("UPDATE torrent_stream SET sid = '', asid = '' WHERE h "+cond, args...); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			"UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, matchlab_parse_retry_at = NULL WHERE hash "+cond,
+			args...,
+		); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, hash := range hashes {
+		ts.InvalidateFilesByHash(hash)
+	}
+	return nil
+}
+
 // MatchLabPendingHash describes a torrent awaiting identity matching.
 // FileRevision is an optimistic lock: fresh stream data during HTTP matching
 // invalidates the in-flight snapshot and schedules a safe retry.

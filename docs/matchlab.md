@@ -35,7 +35,7 @@ Matching every video path is stricter than sampling only one: the highest-episod
 
 ### Compatibility
 
-- **URL absent:** original parser and local IMDb/AniDB mapping remain enabled; rows parsed under MatchLab are eligible for local reparsing after turning off the URL.
+- **URL absent:** the original Go-PTT parser and local IMDb mapper run, and the native AniDB mapper runs when `+anime` is enabled. Rows previously parsed by MatchLab are reparsed incrementally. Before their native parser version is stored, the parser worker removes only those hashes' old MatchLab IMDb/AniDB mappings and file SID/ASID identities, making them eligible for native remapping. All other torrents and existing native mappings remain intact. This handover can temporarily reduce results while the local workers rebuild mappings.
 - **URL present:** local IMDb and AniDB matching workers are not run. External requests are bounded (default eight simultaneous HTTP calls; worker processes at most four torrent hashes in parallel). A MatchLab outage does **not** silently fall back to the local matcher.
 - **Existing data:** all existing hashes initially have `matchlab_mapped_at IS NULL`, so they are progressively reprocessed. Fresh file records clear this marker for their hash, so new `torrent_stream` data is re-matched. You can monitor the remaining backlog with:
 
