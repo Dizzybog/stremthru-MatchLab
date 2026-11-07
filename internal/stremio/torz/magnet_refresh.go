@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/MunifTanjim/stremthru/internal/cache"
-	"github.com/MunifTanjim/stremthru/store"
 	"github.com/MunifTanjim/stremthru/internal/util"
+	"github.com/MunifTanjim/stremthru/store"
 )
 
 // A shared cache of completed availability checks, scoped by the user's
