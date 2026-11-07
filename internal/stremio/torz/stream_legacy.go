@@ -402,4 +402,3 @@ func handleStreamLegacy(w http.ResponseWriter, r *http.Request) {
 		Streams: streams,
 	})
 }
-
