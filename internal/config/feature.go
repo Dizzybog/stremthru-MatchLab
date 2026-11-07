@@ -83,6 +83,10 @@ func (f FeatureConfig) HasTorz() bool {
 	return f.IsEnabled(FeatureTorz)
 }
 
+func (f FeatureConfig) HasPerformance() bool {
+	return f.HasTorz() && f.IsEnabled(FeaturePerformance)
+}
+
 func (f FeatureConfig) HasSync() bool {
 	return f.IsEnabled(FeatureSync) && f.HasVault()
 }
@@ -123,12 +127,12 @@ func (f FeatureConfig) HasProbeMediaInfo() bool {
 	return f.IsEnabled(FeatureProbeMediaInfo) && f.HasTorz()
 }
 
-var Feature = func() FeatureConfig {
+func parseFeatureConfig(value string) FeatureConfig {
 	feature := FeatureConfig{
 		disabled: []string{FeatureAnime, FeaturePerformance, FeatureStremioP2P},
 	}
 
-	for _, name := range strings.FieldsFunc(strings.TrimSpace(getEnv("STREMTHRU_FEATURE")), func(c rune) bool {
+	for _, name := range strings.FieldsFunc(strings.TrimSpace(value), func(c rune) bool {
 		return c == ','
 	}) {
 		switch {
@@ -158,4 +162,6 @@ var Feature = func() FeatureConfig {
 	}
 
 	return feature
-}()
+}
+
+var Feature = parseFeatureConfig(getEnv("STREMTHRU_FEATURE"))
