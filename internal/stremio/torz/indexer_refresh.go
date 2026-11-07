@@ -57,6 +57,9 @@ func getIndexerSourceLink(userScope, hash string) string {
 }
 
 func init() {
+	if !config.Feature.HasPerformance() {
+		return
+	}
 	for i := 0; i < 3; i++ {
 		go func() {
 			for job := range indexerRefreshJobs {
@@ -85,6 +88,9 @@ func init() {
 
 // queueIndexerRefresh never delays a stream response or queues unbounded work.
 func queueIndexerRefresh(ctx *Ctx, contentType, streamId, userScope string) {
+	if !config.Feature.HasPerformance() {
+		return
+	}
 	if len(ctx.Indexers) == 0 {
 		return
 	}

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/MunifTanjim/stremthru/internal/cache"
+	"github.com/MunifTanjim/stremthru/internal/config"
 	"github.com/MunifTanjim/stremthru/internal/util"
 	"github.com/MunifTanjim/stremthru/store"
 )
@@ -40,6 +41,9 @@ func availabilityScopeKey(userScope, sid string) string {
 }
 
 func init() {
+	if !config.Feature.HasPerformance() {
+		return
+	}
 	for i := 0; i < 3; i++ {
 		go func() {
 			for job := range availabilityJobs {
@@ -73,6 +77,9 @@ func init() {
 // this user/media scope is cold, availability is unknown until background
 // refresh completes; caller may still show uncached torrents if configured.
 func getCachedAndQueueAvailability(ud *UserData, ctx *Ctx, userScope, sid string, hashes []string) (map[string]string, map[string]struct{}) {
+	if !config.Feature.HasPerformance() {
+		return nil, nil
+	}
 	if len(hashes) == 0 {
 		return nil, nil
 	}

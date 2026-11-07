@@ -4,6 +4,8 @@ This fork can use [MatchLab](https://github.com/Dizzybog/MatchLab) as the author
 
 ## Enable
 
+MatchLab works with StremThru's default disabled `anime` feature. It supplies its own verified IMDb/AniDB identities. Enabling `+anime` activates local anime dataset sync and related workers, **not** MatchLab itself. The optional `+performance` flag controls the asynchronous Torz request path independently.
+
 Set the following in the StremThru container environment:
 
 ```env
