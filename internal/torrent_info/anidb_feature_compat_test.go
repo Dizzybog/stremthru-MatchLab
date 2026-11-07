@@ -43,7 +43,7 @@ func TestAniDBKnownSeasonAlsoFindsUnspecifiedSeasonMappings(t *testing.T) {
 	)
 	require.NoError(t, err)
 	for _, row := range []struct {
-		hash string
+		hash   string
 		season int
 	}{
 		{strings.Repeat("a", 40), -1},
