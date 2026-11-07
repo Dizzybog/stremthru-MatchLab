@@ -83,8 +83,14 @@ func (f FeatureConfig) HasTorz() bool {
 	return f.IsEnabled(FeatureTorz)
 }
 
+// Performance requires MatchLab's precomputed file identities. Falling back to
+// the original path without MatchLab also preserves original result semantics.
+func (f FeatureConfig) CanUsePerformance(hasMatchLab bool) bool {
+	return hasMatchLab && f.HasTorz() && f.IsEnabled(FeaturePerformance)
+}
+
 func (f FeatureConfig) HasPerformance() bool {
-	return f.HasTorz() && f.IsEnabled(FeaturePerformance)
+	return f.CanUsePerformance(Integration.MatchLab.IsEnabled())
 }
 
 func (f FeatureConfig) HasSync() bool {
