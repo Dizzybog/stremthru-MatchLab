@@ -20,7 +20,7 @@ var recentPeerPulls = cache.NewLRUCache[bool](&cache.CacheConfig{
 })
 
 func init() {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		return
 	}
 	for i := 0; i < 3; i++ {
@@ -39,7 +39,7 @@ func init() {
 // QueuePullTorrentsByStremId is deliberately non-blocking. Existing stored
 // results are returned immediately; new peer results appear on the next read.
 func QueuePullTorrentsByStremId(sid string) {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		return
 	}
 	sid = torrent_stream.CleanStremId(sid)
