@@ -3,6 +3,7 @@ package torznab_indexer_syncinfo
 import (
 	"time"
 
+	"github.com/MunifTanjim/stremthru/internal/anime"
 	"github.com/MunifTanjim/stremthru/internal/job"
 	tznc "github.com/MunifTanjim/stremthru/internal/torznab/client"
 	torznab_indexer "github.com/MunifTanjim/stremthru/internal/torznab/indexer"
@@ -58,10 +59,28 @@ var _ = job.NewScheduler(&job.SchedulerConfig[JobData]{
 				return nil
 			}
 
+			// The normalized identifier is an IMDb ID for most Stremio requests.
+			// Resolve its anime classification once only when an anime-only indexer
+			// is enabled; retain the original IMDb ID for query construction.
+			isAnime := nsid.IsAnime
+			if !isAnime {
+				for i := range indexers {
+					if !indexers[i].OnlyAnime {
+						continue
+					}
+					isAnime, err = anime.IsAnimeIMDBId(nsid.Id)
+					if err != nil {
+						log.Error("failed to classify IMDb title as anime", "error", err, "sid", item.SId)
+						return err
+					}
+					break
+				}
+			}
+
 			for i := range indexers {
 				indexer := &indexers[i]
 
-				if indexer.OnlyAnime && !nsid.IsAnime {
+				if indexer.OnlyAnime && !isAnime {
 					continue
 				}
 
