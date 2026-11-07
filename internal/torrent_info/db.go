@@ -1311,6 +1311,39 @@ func ListHashesByStremId(stremId string) ([]string, error) {
 	return hashes, nil
 }
 
+// IsTorrentInfoHash reports whether query is a complete v1 BTIH hash.
+// The check is intentionally strict: only exact hashes bypass the title search.
+func IsTorrentInfoHash(query string) bool {
+	if len(query) != 40 {
+		return false
+	}
+	for _, c := range query {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// ListHashesByTitleOrHash uses the primary key for a complete info hash.
+// All other inputs retain the existing wildcard-capable title search.
+func ListHashesByTitleOrHash(query string, limit int) ([]string, error) {
+	query = strings.TrimSpace(query)
+	if !IsTorrentInfoHash(query) {
+		return ListHashesByTitleQuery(query, limit)
+	}
+
+	var hash string
+	err := db.QueryRow("SELECT hash FROM "+TableName+" WHERE hash = ?", strings.ToLower(query)).Scan(&hash)
+	if err == sql.ErrNoRows {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []string{hash}, nil
+}
+
 func ListHashesByTitleQuery(query string, limit int) ([]string, error) {
 	// Convert glob to SQL LIKE
 	query = strings.ReplaceAll(query, "*", "%")
