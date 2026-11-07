@@ -412,6 +412,79 @@ func GetFilesByHashes(hashes []string) (map[string]Files, error) {
 	return byHash, nil
 }
 
+// GetMatchingFilesByHashes fetches only previously matched files for this
+// stream. Avoid JSON-aggregating the complete file list of every season pack.
+func GetMatchingFilesByHashes(hashes []string, streamId string) (map[string]File, error) {
+	result := make(map[string]File)
+	if len(hashes) == 0 || streamId == "" {
+		return result, nil
+	}
+	for chunk := range slices.Chunk(hashes, 400) {
+		cond, args := db.InStringValues(chunk)
+		args = append(args, streamId, streamId)
+		rows, err := db.Query(
+			"SELECT h, p, i, s, sid, asid, src, vhash, mi FROM "+TableName+
+				" WHERE h "+cond+" AND (sid = ? OR asid = ?) ORDER BY h, i", args...,
+		)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var hash string
+			var file File
+			var mi db.JSONB[media_info.MediaInfo]
+			if err := rows.Scan(&hash, &file.Path, &file.Idx, &file.Size, &file.SId, &file.ASId, &file.Source, &file.VideoHash, &mi); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			file.Normalize()
+			if !file.IsVideo() {
+				continue
+			}
+			if _, exists := result[hash]; exists {
+				continue
+			}
+			if !mi.Null {
+				file.MediaInfo = &mi.Data
+			}
+			result[hash] = file
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return result, nil
+}
+
+// GetHashesWithFiles checks file presence without reading their paths or
+// parsing their filenames in the request path.
+func GetHashesWithFiles(hashes []string) (map[string]bool, error) {
+	result := make(map[string]bool)
+	for chunk := range slices.Chunk(hashes, 400) {
+		cond, args := db.InStringValues(chunk)
+		rows, err := db.Query("SELECT DISTINCT h FROM "+TableName+" WHERE h "+cond, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var hash string
+			if err := rows.Scan(&hash); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			result[hash] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return result, nil
+}
+
 func TrackFiles(storeCode store.StoreCode, filesByHash map[string]Files) {
 	if storeCode.HasUntrustedData() {
 		return

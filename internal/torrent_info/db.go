@@ -695,6 +695,41 @@ func GetByHashes(hashes []string) (map[string]TorrentInfo, error) {
 	return byHash, nil
 }
 
+// GetForTorznab fetches the compact feed projection rather than the full
+// parser record. Hash chunks keep requests below SQLite parameter limits.
+func GetForTorznab(hashes []string) (map[string]TorrentInfo, error) {
+	result := make(map[string]TorrentInfo, len(hashes))
+	for chunk := range slices.Chunk(hashes, 400) {
+		cond, args := db.InStringValues(chunk)
+		query := `SELECT hash,t_title,category,audio,channels,codec,"group",languages,
+			leechers,created_at,resolution,seeders,site,size,year,indexer,private
+			FROM torrent_info WHERE hash ` + cond
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var item TorrentInfo
+			if err := rows.Scan(
+				&item.Hash, &item.TorrentTitle, &item.Category, &item.Audio,
+				&item.Channels, &item.Codec, &item.Group, &item.Languages,
+				&item.Leechers, &item.CreatedAt, &item.Resolution, &item.Seeders,
+				&item.Site, &item.Size, &item.Year, &item.Indexer, &item.Private,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			result[item.Hash] = item
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return result, nil
+}
+
 type TorrentInfoInsertDataFile = ts.File
 
 type TorrentInfoInsertData = TorrentItem
@@ -1254,6 +1289,43 @@ var query_list_hashes_by_stremid_from_imdb_torrent_for_series = fmt.Sprintf(
 	Column.Episodes,
 	Column.Episodes,
 )
+
+// ListHashesByStremIdFast returns only verified, pre-mapped episode/season
+// streams. The expensive IMDb torrent_info season/episode fallback is left
+// to background mapping instead of running on each live search.
+// Non-scoped requests keep the original complete lookup semantics.
+func ListHashesByStremIdFast(stremId string) ([]string, error) {
+	nsid, err := ts.NormalizeStreamId(stremId)
+	if err != nil {
+		return nil, err
+	}
+	if nsid.IsAnime || !nsid.IsSeries() {
+		return ListHashesByStremId(stremId)
+	}
+
+	query := "SELECT DISTINCT " + ts.Column.Hash + " FROM " + ts.TableName +
+		" WHERE " + ts.Column.SId + " = ?"
+	args := []any{stremId}
+	if nsid.Episode == "" {
+		query += " OR " + ts.Column.SId + " LIKE ?"
+		args = append(args, stremId+":%")
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	hashes := []string{}
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, rows.Err()
+}
 
 func ListHashesByStremId(stremId string) ([]string, error) {
 	nsid, err := ts.NormalizeStreamId(stremId)
