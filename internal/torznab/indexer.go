@@ -138,7 +138,7 @@ func (sti stremThruIndexer) Search(q Query) ([]FeedItem, error) {
 	for _, imdbId := range imdbIds {
 		wg.Go(func() {
 			stremId := imdbId + sidSuffix
-			hashes, err := torrent_info.ListHashesByStremId(stremId)
+			hashes, err := torrent_info.ListHashesByStremIdFast(stremId)
 			if err != nil {
 				log.Error("failed to list hashes by strem id", "error", err, "stremId", stremId)
 				return
