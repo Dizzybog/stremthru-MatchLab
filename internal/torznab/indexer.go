@@ -54,7 +54,7 @@ func toFeedItem(tInfo torrent_info.TorrentInfo, imdbId string) FeedItem {
 	if len(tInfo.Channels) > 0 {
 		audio += " | " + strings.Join(tInfo.Channels, ", ")
 	}
-	return FeedItem{
+	item := FeedItem{
 		Audio:       audio,
 		Category:    category,
 		Codec:       tInfo.Codec,
@@ -72,6 +72,13 @@ func toFeedItem(tInfo torrent_info.TorrentInfo, imdbId string) FeedItem {
 		Year:        tInfo.Year,
 		IndexerName: jackett.GetIndexerName(tInfo.Indexer),
 	}
+	// Private tracker peer counts must not be exposed by our public Torznab feed.
+	// FeedItem serialization omits the seeders/leechers attributes when zero.
+	if tInfo.Private {
+		item.Seeders = 0
+		item.Leechers = 0
+	}
+	return item
 }
 
 func (sti stremThruIndexer) Search(q Query) ([]FeedItem, error) {
@@ -173,7 +180,7 @@ func (sti stremThruIndexer) Search(q Query) ([]FeedItem, error) {
 	items := []FeedItem{}
 	for _, hash := range allHashes {
 		tInfo, ok := tInfoByHash[hash]
-		if !ok || tInfo.Private {
+		if !ok {
 			continue
 		}
 		items = append(items, toFeedItem(tInfo, imdbIDByHash[hash]))
