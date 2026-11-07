@@ -21,7 +21,11 @@ type debridAvailability struct {
 func awaitDebridAvailability(check func() debridAvailability) (debridAvailability, error) {
 	result := check()
 	if result.HasErr && len(result.ByHash) == 0 {
-		return result, errors.Join(result.Err...)
+		err := errors.Join(result.Err...)
+		if err == nil {
+			err = errors.New("debrid availability check failed")
+		}
+		return result, err
 	}
 	return result, nil
 }
