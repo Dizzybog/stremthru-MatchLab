@@ -75,4 +75,4 @@ Set `STREMTHRU_FEATURE=+performance` to opt into the faster search path introduc
 
 With `performance` on, Stremio Torz and the Torznab feed return currently indexed results and refresh peer/indexer/debrid availability in the background. Cold cached-only searches may temporarily show no results until availability is confirmed, and file-list episodes need a precomputed file mapping rather than inline filename matching. MatchLab is independent of this setting.
 
-The flags are independent: `+performance`, `+anime`, or `+performance,+anime` are all supported configurations.
+`performance` is an independent **configuration option**, but its optimized file-search path requires MatchLab's precomputed file identities. If MatchLab is disconnected, the application automatically uses the original Torz implementation even with `+performance` enabled; no restart-time error or local-match regression should result. With MatchLab configured, `+performance`, `+anime`, or `+performance,+anime` are valid combinations.
