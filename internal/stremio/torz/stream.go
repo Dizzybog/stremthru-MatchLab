@@ -322,7 +322,7 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 			if item.HasMissingData() {
 				continue
 			}
-			if config.Feature.IsEnabled(config.FeaturePerformance) {
+			if config.Feature.HasPerformance() {
 				rememberIndexerSourceLink(ctx.sourceScope, item.Hash, item.SourceLink)
 			}
 
@@ -530,7 +530,7 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 		}
 	}
 	if len(tInfosToUpsert) > 0 {
-		if config.Feature.IsEnabled(config.FeaturePerformance) {
+		if config.Feature.HasPerformance() {
 			// Background refreshes must persist their results before completing.
 			if err := torrent_info.Upsert(tInfosToUpsert, torrent_info.TorrentInfoCategoryUnknown, false); err != nil {
 				return nil, nil, err
@@ -545,7 +545,7 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 }
 
 func GetStreamsForHashes(stremType, stremId string, hashes []string, nsid *torrent_stream.NormalizedStremId) ([]WrappedStream, error) {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		return getStreamsForHashesLegacy(stremType, stremId, hashes, nsid)
 	}
 	tInfoByHash, err := torrent_info.GetByHashes(hashes)
@@ -645,7 +645,7 @@ func GetStreamsForHashes(stremType, stremId string, hashes []string, nsid *torre
 }
 
 func handleStream(w http.ResponseWriter, r *http.Request) {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		handleStreamLegacy(w, r)
 		return
 	}
