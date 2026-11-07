@@ -14,8 +14,8 @@ func animePointer(s string) *string { return &s }
 
 func TestVerifiedMatchLabAnimeChecksIMDbIdentity(t *testing.T) {
 	tests := []struct {
-		name string
-		result matchlab.Response
+		name     string
+		result   matchlab.Response
 		expected bool
 	}{
 		{name: "matched anime", result: matchlab.Response{SIDStart: animePointer("tt1234567:1:2"), ASIDStart: animePointer("123:2")}, expected: true},
