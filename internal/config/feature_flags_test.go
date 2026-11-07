@@ -25,11 +25,14 @@ func TestAnimeAndPerformanceFeatureModes(t *testing.T) {
 			if got := f.IsEnabled(FeatureAnime); got != tc.wantAnime {
 				t.Errorf("anime enabled = %t, want %t", got, tc.wantAnime)
 			}
-			if got := f.HasPerformance(); got != tc.wantFast {
+			if got := f.CanUsePerformance(true); got != tc.wantFast {
 				t.Errorf("performance enabled = %t, want %t", got, tc.wantFast)
 			}
 			if got := f.HasTorz(); got != tc.wantTorz {
 				t.Errorf("torz enabled = %t, want %t", got, tc.wantTorz)
+			}
+			if f.CanUsePerformance(false) {
+				t.Error("performance must fall back to original behavior when MatchLab is disabled")
 			}
 		})
 	}
