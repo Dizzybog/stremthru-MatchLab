@@ -4,11 +4,11 @@ import "testing"
 
 func TestAnimeAndPerformanceFeatureModes(t *testing.T) {
 	tests := []struct {
-		name        string
-		env         string
-		wantAnime   bool
-		wantFast    bool
-		wantTorz    bool
+		name      string
+		env       string
+		wantAnime bool
+		wantFast  bool
+		wantTorz  bool
 	}{
 		{name: "defaults", env: "", wantTorz: true},
 		{name: "anime only", env: "+anime", wantAnime: true, wantTorz: true},
