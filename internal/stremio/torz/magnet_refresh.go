@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/MunifTanjim/stremthru/internal/cache"
-	"github.com/MunifTanjim/stremthru/internal/store"
+	"github.com/MunifTanjim/stremthru/store"
 	"github.com/MunifTanjim/stremthru/internal/util"
 )
 
