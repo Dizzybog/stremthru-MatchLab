@@ -46,7 +46,7 @@ Use the `+` and `-` prefix syntax to selectively toggle features without affecti
 | `meta`             | Meta API endpoints          | Enabled  |                           |
 | `newz`             | Usenet support              | Enabled  |                           |
 | `probe_media_info` | Probe Media Info            | Enabled  | Requires `torz`           |
-| `performance`      | Asynchronous Torz searches and fast mapped-file lookups | Disabled | Requires `torz`; independent of `anime` |
+| `performance`      | Background Torz refresh, fast mapped-file lookup, synchronous debrid checks | Disabled | Requires `torz`; independent of `anime` |
 | `stremio_list`     | Stremio List addon          | Enabled  |                           |
 | `stremio_newz`     | Stremio Newz addon          | Enabled  | Requires `newz`           |
 | `stremio_p2p`      | Stremio P2P support         | Disabled |                           |
@@ -73,6 +73,6 @@ When both `newz` and `vault` are enabled, additional Usenet capabilities become 
 
 Set `STREMTHRU_FEATURE=+performance` to opt into the faster search path introduced in PR #6. Without this flag, StremThru uses the original synchronous Torz request path, the original DB queries and file-matching fallbacks, and the original peer-pull / debrid checks. The new bounded background refresh workers are not started when `performance` is off.
 
-With `performance` on, Stremio Torz and the Torznab feed return currently indexed results and refresh peer/indexer/debrid availability in the background. Cold cached-only searches may temporarily show no results until availability is confirmed, and file-list episodes need a precomputed file mapping rather than inline filename matching. MatchLab is independent of this setting.
+With `performance` on, Stremio Torz and the Torznab feed return currently indexed torrents and refresh peer/indexer data in the background. **Stremio Torz stream requests wait for the configured debrid services to finish checking the cache status of the visible, unique torrent hashes** before sending the response. A provider error is not treated as an uncached result. This preserves fast matching while ensuring that cached-only requests show confirmed debrid availability on the first response. File-list episodes need a precomputed file mapping rather than inline filename matching. MatchLab is independent of debrid checking.
 
 `performance` is an independent **configuration option**, but its optimized file-search path requires MatchLab's precomputed file identities. If MatchLab is disconnected, the application automatically uses the original Torz implementation even with `+performance` enabled; no restart-time error or local-match regression should result. With MatchLab configured, `+performance`, `+anime`, or `+performance,+anime` are valid combinations.
