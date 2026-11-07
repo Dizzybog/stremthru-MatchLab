@@ -1290,6 +1290,43 @@ var query_list_hashes_by_stremid_from_imdb_torrent_for_series = fmt.Sprintf(
 	Column.Episodes,
 )
 
+// ListHashesByStremIdFast returns only verified, pre-mapped episode/season
+// streams. The expensive IMDb torrent_info season/episode fallback is left
+// to background mapping instead of running on each live search.
+// Non-scoped requests keep the original complete lookup semantics.
+func ListHashesByStremIdFast(stremId string) ([]string, error) {
+	nsid, err := ts.NormalizeStreamId(stremId)
+	if err != nil {
+		return nil, err
+	}
+	if nsid.IsAnime || !nsid.IsSeries() {
+		return ListHashesByStremId(stremId)
+	}
+
+	query := "SELECT DISTINCT " + ts.Column.Hash + " FROM " + ts.TableName +
+		" WHERE " + ts.Column.SId + " = ?"
+	args := []any{stremId}
+	if nsid.Episode == "" {
+		query += " OR " + ts.Column.SId + " LIKE ?"
+		args = append(args, stremId+":%")
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	hashes := []string{}
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, rows.Err()
+}
+
 func ListHashesByStremId(stremId string) ([]string, error) {
 	nsid, err := ts.NormalizeStreamId(stremId)
 	if err != nil {
