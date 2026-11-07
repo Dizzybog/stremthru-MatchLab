@@ -701,7 +701,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	ctx.sourceScope = eud
 	queueIndexerRefresh(ctx, contentType, id, eud)
 
-	hashes, err := torrent_info.ListHashesByStremId(id)
+	hashes, err := torrent_info.ListHashesByStremIdFast(id)
 	if err != nil {
 		SendError(w, r, err)
 		return
