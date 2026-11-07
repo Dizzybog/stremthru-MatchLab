@@ -41,7 +41,7 @@ func availabilityScopeKey(userScope, sid string) string {
 }
 
 func init() {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		return
 	}
 	for i := 0; i < 3; i++ {
@@ -77,7 +77,7 @@ func init() {
 // this user/media scope is cold, availability is unknown until background
 // refresh completes; caller may still show uncached torrents if configured.
 func getCachedAndQueueAvailability(ud *UserData, ctx *Ctx, userScope, sid string, hashes []string) (map[string]string, map[string]struct{}) {
-	if !config.Feature.IsEnabled(config.FeaturePerformance) {
+	if !config.Feature.HasPerformance() {
 		return nil, nil
 	}
 	if len(hashes) == 0 {
