@@ -33,6 +33,10 @@ func TestFastTorzLookupOnlyFetchesMappedFileAndFeedColumns(t *testing.T) {
 	_, err := db.Exec("UPDATE torrent_stream SET i = ? WHERE h = ? AND p = ?", 1, hash, "/Example.Show.S01E02.mkv")
 	require.NoError(t, err)
 
+	fastHashes, err := ListHashesByStremIdFast("tt1234567:1:2")
+	require.NoError(t, err)
+	require.Equal(t, []string{hash}, fastHashes)
+
 	matched, err := ts.GetMatchingFilesByHashes([]string{hash}, "tt1234567:1:2")
 	require.NoError(t, err)
 	require.Contains(t, matched, hash)
