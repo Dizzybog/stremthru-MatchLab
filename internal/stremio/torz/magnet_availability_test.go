@@ -68,6 +68,12 @@ func TestAwaitDebridAvailabilityDistinguishesProviderErrorFromUncached(t *testin
 	if !errors.Is(err, providerErr) {
 		t.Fatalf("provider failure should not be treated as uncached: %v", err)
 	}
+	_, err = awaitDebridAvailability(func() debridAvailability {
+		return debridAvailability{HasErr: true}
+	})
+	if err == nil {
+		t.Fatal("provider failure without a detailed error must still return an error")
+	}
 
 	uncached, err := awaitDebridAvailability(func() debridAvailability {
 		return debridAvailability{ByHash: map[string]string{}}
