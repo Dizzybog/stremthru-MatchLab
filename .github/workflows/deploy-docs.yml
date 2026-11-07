@@ -18,6 +18,9 @@ concurrency:
 
 jobs:
   build:
+    # GitHub Pages is not enabled for the fork; leave upstream docs delivery
+    # disabled here until this repository explicitly configures Pages.
+    if: github.repository == 'MunifTanjim/stremthru'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
