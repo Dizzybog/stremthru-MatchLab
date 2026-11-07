@@ -3,7 +3,6 @@ package torznab_indexer_syncinfo
 import (
 	"time"
 
-	"github.com/MunifTanjim/stremthru/internal/anime"
 	"github.com/MunifTanjim/stremthru/internal/job"
 	tznc "github.com/MunifTanjim/stremthru/internal/torznab/client"
 	torznab_indexer "github.com/MunifTanjim/stremthru/internal/torznab/indexer"
@@ -68,10 +67,11 @@ var _ = job.NewScheduler(&job.SchedulerConfig[JobData]{
 					if !indexers[i].OnlyAnime {
 						continue
 					}
-					isAnime, err = anime.IsAnimeIMDBId(nsid.Id)
+					isAnime, err = classifyAnimeIMDb(nsid.Id, meta.Titles, meta.Season, meta.Ep)
 					if err != nil {
-						log.Error("failed to classify IMDb title as anime", "error", err, "sid", item.SId)
-						return err
+						// A broken MatchLab request must not block non-anime indexers.
+						log.Warn("failed to classify IMDb anime; skipping anime-only indexers", "error", err, "sid", item.SId)
+						isAnime = false
 					}
 					break
 				}

@@ -1197,21 +1197,23 @@ var query_list_hashes_for_anime_by_anidb_id_from_torrent_stream = fmt.Sprintf(
 	ts.Column.ASId,
 )
 var query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent = fmt.Sprintf(
-	"SELECT ato.%s FROM %s ato WHERE ato.%s = ? AND ato.%s = '%s' AND ato.%s = ?",
+	"SELECT ato.%s FROM %s ato WHERE ato.%s = ? AND ato.%s = '%s' AND (ato.%s = ? OR ato.%s = -1 OR ? = -1)",
 	anidb.TorrentColumn.Hash,
 	anidb.TorrentTableName,
 	anidb.TorrentColumn.TId,
 	anidb.TorrentColumn.SeasonType,
 	anidb.TorrentSeasonTypeAnime,
 	anidb.TorrentColumn.Season,
+	anidb.TorrentColumn.Season,
 )
 var query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent_with_episode = fmt.Sprintf(
-	"SELECT ato.%s FROM %s ato WHERE ato.%s = ? AND ato.%s = '%s' AND ato.%s = ? AND ((ato.eps != '' AND CONCAT(',', ato.eps, ',') LIKE ?) OR (ato.eps = '' AND (ato.%s = 0 OR ato.%s <= ?) AND (ato.%s = 0 OR ato.%s >= ?)))",
+	"SELECT ato.%s FROM %s ato WHERE ato.%s = ? AND ato.%s = '%s' AND (ato.%s = ? OR ato.%s = -1 OR ? = -1) AND ((ato.eps != '' AND CONCAT(',', ato.eps, ',') LIKE ?) OR (ato.eps = '' AND (ato.%s = 0 OR ato.%s <= ?) AND (ato.%s = 0 OR ato.%s >= ?)))",
 	anidb.TorrentColumn.Hash,
 	anidb.TorrentTableName,
 	anidb.TorrentColumn.TId,
 	anidb.TorrentColumn.SeasonType,
 	anidb.TorrentSeasonTypeAnime,
+	anidb.TorrentColumn.Season,
 	anidb.TorrentColumn.Season,
 	anidb.TorrentColumn.EpisodeStart,
 	anidb.TorrentColumn.EpisodeStart,
@@ -1234,13 +1236,13 @@ func listHashesForAnimeByAniDBId(anidbId, season, episode string) ([]string, err
 		args = []any{anidbId + ":%"}
 
 		query.WriteString(query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent)
-		args = append(args, anidbId, s)
+		args = append(args, anidbId, s, s)
 	} else {
 		args = []any{anidbId + ":" + episode}
 
 		ep := util.SafeParseInt(episode, -1)
 		query.WriteString(query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent_with_episode)
-		args = append(args, anidbId, s, "%,"+episode+",%", ep, ep)
+		args = append(args, anidbId, s, s, "%,"+episode+",%", ep, ep)
 	}
 	rows, err := db.Query(query.String(), args...)
 	if err != nil {
@@ -1561,14 +1563,14 @@ func ListByStremId(stremId string, excludeMissingSize bool) (*ListTorrentsData, 
 			args = make([]any, 0, 3)
 			args = append(args, nsid.Id+":%")
 			query.WriteString(query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent)
-			args = append(args, nsid.Id, s)
+			args = append(args, nsid.Id, s, s)
 		} else {
 			args = make([]any, 0, 5)
 			args = append(args, nsid.Id+":"+nsid.Episode)
 
 			ep := util.SafeParseInt(nsid.Episode, -1)
 			query.WriteString(query_list_hashes_for_anime_by_anidb_id_from_anidb_torrent_with_episode)
-			args = append(args, nsid.Id, s, "%,"+nsid.Episode+",%", ep, ep)
+			args = append(args, nsid.Id, s, s, "%,"+nsid.Episode+",%", ep, ep)
 		}
 		query.WriteString(")")
 	} else {
