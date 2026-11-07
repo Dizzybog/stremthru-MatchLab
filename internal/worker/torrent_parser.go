@@ -51,6 +51,9 @@ func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
 
 			for cTInfos := range slices.Chunk(tInfos, 500) {
 				parsedTInfos := []*ti.TorrentInfo{}
+				// Only already-MatchLab-parsed rows need an identity handover.
+				// Fresh/native rows retain their original mappings.
+				matchLabHandoverHashes := []string{}
 				if matchlab.Enabled() {
 					type parsedResult struct {
 						info *ti.TorrentInfo
@@ -86,10 +89,19 @@ func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
 					}
 				} else {
 					for i := range cTInfos {
+						wasMatchLab := cTInfos[i].ParserVersion == matchlab.ParserVersion
 						if t := parseTorrentInfo(w, &cTInfos[i]); t != nil {
 							parsedTInfos = append(parsedTInfos, t)
+							if wasMatchLab {
+								matchLabHandoverHashes = append(matchLabHandoverHashes, t.Hash)
+							}
 						}
 					}
+				}
+				// Clear authoritative MatchLab identities before writing the
+				// native parser version. A failed native upsert remains retryable.
+				if err := ti.ResetMatchLabIdentitiesForNativeMatching(matchLabHandoverHashes); err != nil {
+					return err
 				}
 				if err := ti.UpsertParsed(parsedTInfos); err != nil {
 					return err
