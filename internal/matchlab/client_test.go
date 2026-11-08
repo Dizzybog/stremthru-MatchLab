@@ -107,6 +107,46 @@ func TestMatchLabClientUsesExternalEndpoints(t *testing.T) {
 	}
 }
 
+func TestStrictDebugUsesProductionPolicyForCrosswalkSegments(t *testing.T) {
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Path)
+		switch r.URL.Path {
+		case "/match":
+			fmt.Fprint(w, `{"sid_start":"tt0434665:15:4","sid_end":"tt0434665:15:4","asid_start":"2369:320","asid_end":"2369:320"}`)
+		case "/debug/match/strict":
+			fmt.Fprint(w, `{"selected":{"imdb_id":"tt0434665","episode_range":{"complete":true,"unmapped_count":0,"segments":[{"season":15,"start_episode":4,"end_episode":4,"anidb_id":"2369","start_anime_episode":320,"end_anime_episode":320}]}}}`)
+		case "/debug/match":
+			t.Error("permissive dashboard diagnostics must never be used by the worker")
+			http.Error(w, "wrong policy", http.StatusBadRequest)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, 5*time.Second, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	matched, err := client.Match(ctx, "Bleach 320")
+	if err != nil || matched.SingleSID() != "tt0434665:15:4" {
+		t.Fatalf("MatchLab strict match: %+v %v", matched, err)
+	}
+	debug, err := client.Debug(ctx, "Bleach 320")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if debug.Selected == nil || debug.Selected.IMDbID != "tt0434665" ||
+		debug.Selected.EpisodeRange == nil ||
+		len(debug.Selected.EpisodeRange.Segments) != 1 {
+		t.Fatalf("strict debug: %+v", debug)
+	}
+	if strings.Join(seen, ",") != "/match,/debug/match/strict" {
+		t.Fatalf("unexpected endpoints: %v", seen)
+	}
+}
+
 func TestTransportFailuresDoNotLookLikeNoMatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
