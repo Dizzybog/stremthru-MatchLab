@@ -360,7 +360,11 @@ type DebugMatch struct {
 
 func (c *Client) Debug(ctx context.Context, title string) (*DebugMatch, error) {
 	var result DebugMatch
-	if err := c.request(ctx, "/debug/match", title, &result); err != nil {
+	// The dashboard's /debug/match is intentionally permissive and can
+	// select a different IMDb identity than production /match. Workers
+	// must use the strict diagnostics endpoint to read segment details
+	// belonging to the already published production identity.
+	if err := c.request(ctx, "/debug/match/strict", title, &result); err != nil {
 		return nil, err
 	}
 	if result.Selected != nil && result.Selected.EpisodeRange != nil {
