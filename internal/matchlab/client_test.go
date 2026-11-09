@@ -16,6 +16,8 @@ func TestResponseContract(t *testing.T) {
 	valid := []string{
 		`{"sid_start":null,"sid_end":null,"asid_start":null,"asid_end":null}`,
 		`{"sid_start":"tt0460681:1:1","sid_end":"tt0460681:1:22","asid_start":null,"asid_end":null}`,
+		`{"sid_start":"tt0460681:17","sid_end":"tt0460681:17","asid_start":null,"asid_end":null}`,
+		`{"sid_start":"tt0460681:1","sid_end":"tt0460681:3","asid_start":null,"asid_end":null}`,
 		`{"sid_start":null,"sid_end":null,"asid_start":"12:1","asid_end":"13:12"}`,
 	}
 	for _, raw := range valid {
@@ -34,6 +36,8 @@ func TestResponseContract(t *testing.T) {
 		`{"sid_start":"tt0460681:1:1","sid_end":"tt1111111:1:2","asid_start":null,"asid_end":null}`,
 		`{"sid_start":null,"sid_end":null,"asid_start":"notanidb:1","asid_end":null}`,
 		`{"sid_start":"tt1234567:1:-1","sid_end":null,"asid_start":null,"asid_end":null}`,
+		`{"sid_start":"tt1234567:17","sid_end":"tt1234567:17:1","asid_start":null,"asid_end":null}`,
+		`{"sid_start":"tt1234567:10000","sid_end":"tt1234567:10000","asid_start":null,"asid_end":null}`,
 	}
 	for _, raw := range invalid {
 		var r Response
@@ -51,6 +55,14 @@ func TestSingleFileIdentityRequiresOneCoordinate(t *testing.T) {
 	movie := Response{SIDStart: strptr("tt1234567"), SIDEnd: strptr("tt1234567")}
 	if got := movie.SingleSID(); got != "tt1234567" {
 		t.Fatalf("movie ID: %s", got)
+	}
+	season := Response{SIDStart: strptr("tt1234567:17"), SIDEnd: strptr("tt1234567:17")}
+	if got := season.SingleSID(); got != "tt1234567:17" {
+		t.Fatalf("season SID: %s", got)
+	}
+	id, s, ep, hasSeason, ok := ParseSID("tt1234567:17")
+	if !ok || !hasSeason || id != "tt1234567" || s != 17 || ep != -1 {
+		t.Fatalf("season-only SID was not parsed: %q %d %d %v %v", id, s, ep, hasSeason, ok)
 	}
 	pack := Response{SIDStart: strptr("tt1234567:1:1"), SIDEnd: strptr("tt1234567:1:7")}
 	if got := pack.SingleSID(); got != "" {
