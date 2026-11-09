@@ -48,6 +48,7 @@ type matchLabAnimeGroup struct {
 }
 
 // mergeMatchLabIdentity collects only endpoints the server has verified.
+// A season-only SID is recorded with episode -1; it never verifies an episode.
 // A partial range does not license inventing all its intermediate episodes.
 func mergeMatchLabIdentity(ids map[string]struct{}, coords map[string][]matchLabSeasonEpisode, r matchlab.Response) {
 	for _, sid := range []*string{r.SIDStart, r.SIDEnd} {
@@ -75,7 +76,8 @@ func addMatchLabRange(coords map[string][]matchLabSeasonEpisode, r matchlab.Resp
 	firstID, firstS, firstE, a, ok1 := matchlab.ParseSID(*r.SIDStart)
 	lastID, lastS, lastE, b, ok2 := matchlab.ParseSID(*r.SIDEnd)
 	if !ok1 || !ok2 || !a || !b || firstID != lastID ||
-		firstS != lastS || lastE < firstE || lastE-firstE > 2047 {
+		firstE < 0 || lastE < 0 || firstS != lastS ||
+		lastE < firstE || lastE-firstE > 2047 {
 		return
 	}
 	for ep := firstE; ep <= lastE; ep++ {
@@ -138,7 +140,7 @@ func addMatchLabAnime(groups map[string]*matchLabAnimeGroup, ids map[string]int,
 		r.SIDEnd != nil && *r.SIDStart == *r.SIDEnd {
 		id, _, ok := matchlab.ParseASID(*r.ASIDStart)
 		_, season, ep, has, valid := matchlab.ParseSID(*r.SIDStart)
-		if ok && has && valid && season == tvSeason {
+		if ok && has && valid && ep >= 0 && season == tvSeason {
 			key := fmt.Sprintf("%s:tv:%d", id, season)
 			g := groups[key]
 			if g == nil {
@@ -343,11 +345,13 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 		seasonSet := map[int]struct{}{}
 		episodeSet := map[int]struct{}{}
 		for _, ep := range coords[id] {
-			if ep.season < 0 || ep.season > 9999 || ep.episode < 0 || ep.episode > 99999 {
+			if ep.season < 0 || ep.season > 9999 || ep.episode < -1 || ep.episode > 99999 {
 				continue
 			}
 			seasonSet[ep.season] = struct{}{}
-			episodeSet[ep.episode] = struct{}{}
+			if ep.episode >= 0 {
+				episodeSet[ep.episode] = struct{}{}
+			}
 		}
 		result.Seasons = sortedInts(seasonSet)
 		if len(result.Seasons) > 1 {
@@ -361,10 +365,10 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 				}
 			}
 		}
-		// MatchLab's verified SID coordinates are authoritative. Never
-		// reintroduce stale seasons from the earlier /parse result: a
-		// corrected IMDb match must replace torrent_info.seasons and
-		// torrent_info.episodes, not merge with the old values.
+		// MatchLab's verified SID coordinates, including season-only IDs,
+		// are authoritative. Never reintroduce stale seasons from /parse:
+		// a corrected match replaces torrent_info.seasons and episodes.
+		// Unknown episodes never become synthetic E00/E01 values.
 		if len(result.Seasons) > 1 {
 			// A multi-season torrent must not expose an unscoped episode list.
 			result.Episodes = []int{}
