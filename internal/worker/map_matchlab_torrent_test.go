@@ -310,6 +310,38 @@ func TestMatchLabVerifiedSingleSeasonOverridesStaleValues(t *testing.T) {
 	}
 }
 
+func TestMatchLabSeasonOnlySIDOverridesStaleParser(t *testing.T) {
+	pack := torrent_info.TorrentInfo{
+		Hash: "season-only", TorrentTitle: "Bleach.S17",
+		Seasons: torrent_info.CommaSeperatedInt{16},
+		Episodes: torrent_info.CommaSeperatedInt{1, 2},
+	}
+	mapped := buildMatchLabMapping(pack, mkSID("tt1234567:17", "tt1234567:17"), nil, nil, nil)
+	if !reflect.DeepEqual(mapped.IMDbIDs, []string{"tt1234567"}) {
+		t.Fatalf("wrong IMDb identity: %v", mapped.IMDbIDs)
+	}
+	if !reflect.DeepEqual(mapped.Seasons, []int{17}) || len(mapped.Episodes) != 0 {
+		t.Fatalf("season-only SID should replace stale episodes: seasons=%v episodes=%v",
+			mapped.Seasons, mapped.Episodes)
+	}
+	if mapped.Category != torrent_info.TorrentInfoCategorySeries {
+		t.Fatal("season-only SID must identify a series")
+	}
+}
+
+func TestMatchLabSeasonOnlyRangeDoesNotInventEpisodes(t *testing.T) {
+	pack := torrent_info.TorrentInfo{
+		Hash: "seasons", TorrentTitle: "Example Show S01-S03",
+		Seasons: torrent_info.CommaSeperatedInt{1, 2, 3},
+		Episodes: torrent_info.CommaSeperatedInt{4, 5},
+	}
+	mapped := buildMatchLabMapping(pack, mkSID("tt1234567:1", "tt1234567:3"), nil, nil, nil)
+	if !reflect.DeepEqual(mapped.Seasons, []int{1, 2, 3}) || len(mapped.Episodes) != 0 {
+		t.Fatalf("season range must not imply episodes: seasons=%v episodes=%v",
+			mapped.Seasons, mapped.Episodes)
+	}
+}
+
 func TestMatchLabUnscopedIdentityKeepsParsedSeasonOnlyWhenUnverified(t *testing.T) {
 	// A bare IMDb ID carries no season/episode evidence. Do not erase
 	// already parsed coordinates until MatchLab verifies replacements.
