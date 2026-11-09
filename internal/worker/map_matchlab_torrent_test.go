@@ -313,7 +313,7 @@ func TestMatchLabVerifiedSingleSeasonOverridesStaleValues(t *testing.T) {
 func TestMatchLabSeasonOnlySIDOverridesStaleParser(t *testing.T) {
 	pack := torrent_info.TorrentInfo{
 		Hash: "season-only", TorrentTitle: "Bleach.S17",
-		Seasons: torrent_info.CommaSeperatedInt{16},
+		Seasons:  torrent_info.CommaSeperatedInt{16},
 		Episodes: torrent_info.CommaSeperatedInt{1, 2},
 	}
 	mapped := buildMatchLabMapping(pack, mkSID("tt1234567:17", "tt1234567:17"), nil, nil, nil)
@@ -332,7 +332,7 @@ func TestMatchLabSeasonOnlySIDOverridesStaleParser(t *testing.T) {
 func TestMatchLabSeasonOnlyRangeDoesNotInventEpisodes(t *testing.T) {
 	pack := torrent_info.TorrentInfo{
 		Hash: "seasons", TorrentTitle: "Example Show S01-S03",
-		Seasons: torrent_info.CommaSeperatedInt{1, 2, 3},
+		Seasons:  torrent_info.CommaSeperatedInt{1, 2, 3},
 		Episodes: torrent_info.CommaSeperatedInt{4, 5},
 	}
 	mapped := buildMatchLabMapping(pack, mkSID("tt1234567:1", "tt1234567:3"), nil, nil, nil)
