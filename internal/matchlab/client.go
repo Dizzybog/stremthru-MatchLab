@@ -65,19 +65,26 @@ func isIMDbID(s string) bool {
 	return true
 }
 
-// ParseSID returns the IMDb title ID, season and episode, and whether the
-// coordinates were actually present. A bare IMDb title ID is also valid.
+// ParseSID returns an IMDb identity and any known season/episode coordinates.
+// It accepts ttID, ttID:season and ttID:season:episode. The fourth return
+// value reports whether a season is present; episode -1 means unknown.
 func ParseSID(s string) (string, int, int, bool, bool) {
 	parts := strings.Split(s, ":")
-	if (len(parts) != 1 && len(parts) != 3) || !isIMDbID(parts[0]) {
+	if (len(parts) != 1 && len(parts) != 2 && len(parts) != 3) || !isIMDbID(parts[0]) {
 		return "", 0, 0, false, false
 	}
 	if len(parts) == 1 {
 		return parts[0], 0, 0, false, true
 	}
-	season, err1 := strconv.Atoi(parts[1])
-	episode, err2 := strconv.Atoi(parts[2])
-	if err1 != nil || err2 != nil || season < 0 || season > 9999 || episode < 0 || episode > 99999 {
+	season, err := strconv.Atoi(parts[1])
+	if err != nil || season < 0 || season > 9999 {
+		return "", 0, 0, false, false
+	}
+	if len(parts) == 2 {
+		return parts[0], season, -1, true, true
+	}
+	episode, err := strconv.Atoi(parts[2])
+	if err != nil || episode < 0 || episode > 99999 {
 		return "", 0, 0, false, false
 	}
 	return parts[0], season, episode, true, true
@@ -136,7 +143,8 @@ func (r Response) Validate() error {
 	if r.SIDStart != nil && r.SIDEnd != nil {
 		start, ss, se, sh, _ := ParseSID(*r.SIDStart)
 		end, es, ee, eh, _ := ParseSID(*r.SIDEnd)
-		if start != end || sh != eh || (sh && (es < ss || (ss == es && ee < se))) {
+		if start != end || sh != eh ||
+			(sh && ((se == -1) != (ee == -1) || es < ss || (ss == es && ee < se))) {
 			return errors.New("inconsistent MatchLab SID endpoints")
 		}
 	}
