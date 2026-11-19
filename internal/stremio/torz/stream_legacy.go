@@ -11,6 +11,7 @@ import (
 
 	"github.com/MunifTanjim/stremthru/core"
 	"github.com/MunifTanjim/stremthru/internal/buddy"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/config"
 	"github.com/MunifTanjim/stremthru/internal/shared"
 	stremio_shared "github.com/MunifTanjim/stremthru/internal/stremio/shared"
@@ -68,7 +69,7 @@ func getStreamsForHashesLegacy(stremType, stremId string, hashes []string, nsid 
 					}
 				}
 			}
-			if file == nil && !nsid.IsAnime && nsid.IsSeries() && nsid.Episode != "" {
+			if file == nil && !matchlab.Enabled() && !nsid.IsAnime && nsid.IsSeries() && nsid.Episode != "" {
 				for i := range files {
 					f := &files[i]
 					if f.IsVideo() {
@@ -88,6 +89,11 @@ func getStreamsForHashesLegacy(stremType, stremId string, hashes []string, nsid 
 					continue
 				}
 			}
+		}
+		if matchlab.Enabled() && file == nil && nsid.IsSeries() && nsid.Episode != "" && len(filesByHashes[hash]) > 0 {
+			// A known pack may only serve a verified file/episode association.
+			// Never infer one from local filename parsing in MatchLab mode.
+			continue
 		}
 
 		pttr, err := tInfo.ToParsedResult()
