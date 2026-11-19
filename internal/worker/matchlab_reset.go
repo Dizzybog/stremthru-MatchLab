@@ -17,6 +17,7 @@ const matchLabResetJobTTL = 7 * 24 * time.Hour
 
 var ErrMatchLabResetInProgress = errors.New("a MatchLab reset is already running")
 var matchLabResetLog = logger.Scoped("worker/matchlab-reset")
+var matchLabResetExecute = torrent_info.ResetAllMatchLabMappingsWithStats
 
 // MatchLabResetStatus is stored in the job log and can be read by any
 // dashboard instance, including after a page reload.
@@ -141,7 +142,7 @@ func runMatchLabReset(id string, data matchLabResetData, lock db.AdvisoryLock) {
 		}
 	}()
 
-	stats, resetErr := torrent_info.ResetAllMatchLabMappingsWithStats(data.IncludeParsing)
+	stats, resetErr := matchLabResetExecute(data.IncludeParsing)
 	close(stop)
 	heartbeat.Wait()
 
