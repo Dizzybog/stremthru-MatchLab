@@ -108,7 +108,6 @@ func TestResetAllMatchLabMappingsAndParsing(t *testing.T) {
 	verifyMatchLabReset(t, hash, path, true)
 }
 
-
 func TestResetSelectedMatchLabMappingsDoesNotTouchOtherHashes(t *testing.T) {
 	hash, path := prepareMatchLabResetTest(t, "9")
 	otherHash := strings.Repeat("8", 40)
@@ -144,7 +143,7 @@ func TestResetSelectedMatchLabMappingsDoesNotTouchOtherHashes(t *testing.T) {
 
 	var version int
 	var revision int64
-	var mappedAt sql.NullInt64
+	var mappedAt sql.NullTime
 	require.NoError(t, db.QueryRow(
 		"SELECT parser_version, matchlab_mapped_at, matchlab_file_revision FROM torrent_info WHERE hash = ?", hash,
 	).Scan(&version, &mappedAt, &revision))
@@ -203,7 +202,6 @@ func TestResetSelectedMatchLabMappingOnlyPreservesParser(t *testing.T) {
 	require.Len(t, pending, 1)
 	require.Equal(t, hash, pending[0].Hash)
 }
-
 
 func TestResetAllMatchLabMappingsReportsAffectedRows(t *testing.T) {
 	hash, path := prepareMatchLabResetTest(t, "5")
