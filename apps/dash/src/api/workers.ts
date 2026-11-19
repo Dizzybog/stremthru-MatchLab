@@ -94,7 +94,7 @@ export function useWorkerMutation(workerId: string) {
     mutationFn: async (includeParsing: boolean) => {
       await api(`/workers/${workerId}/matchlab/reset`, {
         method: "POST",
-        body: JSON.stringify({ include_parsing: includeParsing }),
+        body: { include_parsing: includeParsing },
       });
     },
     onSuccess: async (_, __, ___, ctx) => {
