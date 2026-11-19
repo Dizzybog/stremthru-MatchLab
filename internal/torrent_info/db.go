@@ -1775,11 +1775,13 @@ func ExistsByHash(hashes []string) (map[string]bool, error) {
 	return exists, nil
 }
 
-// MatchLabResetStats reports how much data the reset actually touched.
-// It helps distinguish a successful reset from a dashboard using another DB.
+// MatchLabResetStats reports affected row counts for SQLite's row-wise
+// reset, or FastReset=true for PostgreSQL's metadata-only reset (exact row
+// counts deliberately skipped to avoid two full-table scans).
 type MatchLabResetStats struct {
 	Torrents    int64 `json:"torrents"`
 	StreamFiles int64 `json:"stream_files"`
+	FastReset   bool  `json:"fast_reset"`
 }
 
 // ResetAllMatchLabMappings keeps the original programmatic error-only API.
@@ -1788,58 +1790,62 @@ func ResetAllMatchLabMappings(includeParsing bool) error {
 	return err
 }
 
-// ResetAllMatchLabMappingsWithStats clears derived identities and requeues all
-// torrents in one transaction. File rows and media metadata are not removed.
-// A successful response reports actual affected row counts from the database.
+// ResetAllMatchLabMappingsWithStats atomically clears derived identity state.
+// PostgreSQL uses metadata-only column replacement; SQLite keeps the existing
+// row-wise reset. The maintenance gate drains other StremThru writers and
+// releases them on either commit or rollback.
 func ResetAllMatchLabMappingsWithStats(includeParsing bool) (MatchLabResetStats, error) {
 	var stats MatchLabResetStats
-	// Drain active StremThru writers before touching shared mapping tables.
-	// Other in-process writes resume automatically after commit or rollback.
 	tx, err := db.BeginMaintenance()
 	if err != nil {
 		return stats, err
 	}
 	defer tx.Rollback()
 
-	reset := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
-		"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
-	if includeParsing {
-		reset += ", parser_version = 0, parser_input = '', parsed_at = NULL"
-	}
-	res, err := tx.Exec(reset)
-	if err != nil {
-		return stats, err
-	}
-	stats.Torrents, err = res.RowsAffected()
-	if err != nil {
-		return stats, err
-	}
-
-	// Both mapping tables store derived information; TRUNCATE keeps large
-	// PostgreSQL resets fast and avoids accumulating DELETE row versions.
 	if db.Dialect == db.DBDialectPostgres {
-		_, err = tx.Exec("TRUNCATE TABLE imdb_torrent, anidb_torrent")
+		if err := postgresResetMatchLabMetadata(tx, includeParsing); err != nil {
+			return stats, err
+		}
+		if _, err := tx.Exec("TRUNCATE TABLE imdb_torrent, anidb_torrent"); err != nil {
+			return stats, err
+		}
+		if err := postgresResetMatchLabStreamIDs(tx); err != nil {
+			return stats, err
+		}
+		// Do not count millions of rows merely for UI statistics; it would
+		// negate part of the metadata reset's performance improvement.
+		stats.FastReset = true
 	} else {
-		_, err = tx.Exec("DELETE FROM imdb_torrent")
-		if err == nil {
-			_, err = tx.Exec("DELETE FROM anidb_torrent")
+		reset := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
+			"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
+		if includeParsing {
+			reset += ", parser_version = 0, parser_input = '', parsed_at = NULL"
+		}
+		res, err := tx.Exec(reset)
+		if err != nil {
+			return stats, err
+		}
+		stats.Torrents, err = res.RowsAffected()
+		if err != nil {
+			return stats, err
+		}
+
+		if _, err = tx.Exec("DELETE FROM imdb_torrent"); err != nil {
+			return stats, err
+		}
+		if _, err = tx.Exec("DELETE FROM anidb_torrent"); err != nil {
+			return stats, err
+		}
+		res, err = tx.Exec("UPDATE torrent_stream SET sid = '*', asid = '' WHERE sid != '*' OR asid != ''")
+		if err != nil {
+			return stats, err
+		}
+		stats.StreamFiles, err = res.RowsAffected()
+		if err != nil {
+			return stats, err
 		}
 	}
-	if err != nil {
-		return stats, err
-	}
-
-	// Preserve file paths, size, index and media info. Report the number of
-	// file rows whose stale identities were actually cleared.
-	res, err = tx.Exec("UPDATE torrent_stream SET sid = '*', asid = '' WHERE sid != '*' OR asid != ''")
-	if err != nil {
-		return stats, err
-	}
-	stats.StreamFiles, err = res.RowsAffected()
-	if err != nil {
-		return stats, err
-	}
-	if err = tx.Commit(); err != nil {
+	if err := tx.Commit(); err != nil {
 		return stats, err
 	}
 	ts.InvalidateAllFiles()
