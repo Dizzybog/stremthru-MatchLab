@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/MunifTanjim/go-ptt"
+	"github.com/MunifTanjim/stremthru/internal/db"
 	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	ti "github.com/MunifTanjim/stremthru/internal/torrent_info"
 )
@@ -44,6 +45,7 @@ func InitParseTorrentWorker(conf *WorkerConfig) *Worker {
 			}
 		}
 		for {
+			db.WaitForMaintenance()
 			tInfos, err := ti.GetUnparsed(5000)
 			if err != nil {
 				return err

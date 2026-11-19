@@ -213,7 +213,7 @@ func (l *postgresAdvisoryLock) Err() error {
 
 func postgresNewAdvisoryLock(names ...string) AdvisoryLock {
 	name := strings.Join(names, ":")
-	tx, err := Begin()
+	tx, err := BeginAdvisoryLock()
 	if err != nil {
 		lockLog.Error("lock tx begin failed", "error", err, "name", name)
 		return nil

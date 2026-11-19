@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +46,12 @@ var CurrentTimestamp string
 var FnJSONGroupArray string
 var FnJSONObject string
 var FnMax string
+
+// maintenanceWriteGate blocks new StremThru writes and drains active
+// transactions while a global MatchLab mapping reset owns the database.
+// Read-only queries and the maintenance job heartbeat remain available.
+var maintenanceWriteGate sync.RWMutex
+
 var NewAdvisoryLock func(names ...string) AdvisoryLock
 var InStringValues func(values []string) (query string, args []any)
 
@@ -120,7 +127,28 @@ var getExec = func(db Executor) dbExec {
 	}
 }
 
-var Exec = getExec(db)
+var execWithoutMaintenanceGate = getExec(db)
+
+// WaitForMaintenance is a cooperative checkpoint for background workers.
+// It prevents new work from starting while a reset owns the writer gate.
+func WaitForMaintenance() {
+	maintenanceWriteGate.RLock()
+	maintenanceWriteGate.RUnlock()
+}
+
+// Exec blocks ordinary StremThru writes while the global reset is active.
+// Each standalone statement holds a shared gate until it finishes.
+func Exec(query string, args ...any) (sql.Result, error) {
+	maintenanceWriteGate.RLock()
+	defer maintenanceWriteGate.RUnlock()
+	return execWithoutMaintenanceGate(query, args...)
+}
+
+// ExecMaintenanceStatus is exclusively for resetting-job log heartbeats and
+// terminal status: these writes touch only job_log, never mapping tables.
+func ExecMaintenanceStatus(query string, args ...any) (sql.Result, error) {
+	return execWithoutMaintenanceGate(query, args...)
+}
 
 func Query(query string, args ...any) (*sql.Rows, error) {
 	return db.getReplica().Query(adaptQuery(query), args...)
@@ -151,11 +179,22 @@ func GetDB() *dbExecutor {
 }
 
 type Tx struct {
-	tx   *sql.Tx
-	exec dbExec
+	tx      *sql.Tx
+	exec    dbExec
+	onClose func()
+	closed  sync.Once
+}
+
+func (tx *Tx) finish() {
+	tx.closed.Do(func() {
+		if tx.onClose != nil {
+			tx.onClose()
+		}
+	})
 }
 
 func (tx *Tx) Commit() error {
+	defer tx.finish()
 	return tx.tx.Commit()
 }
 
@@ -172,10 +211,36 @@ func (tx *Tx) QueryRow(query string, args ...any) *sql.Row {
 }
 
 func (tx *Tx) Rollback() error {
+	defer tx.finish()
 	return tx.tx.Rollback()
 }
 
+func beginWithGate(onClose func()) (*Tx, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		onClose()
+		return nil, err
+	}
+	return &Tx{tx: tx, exec: getExec(tx), onClose: onClose}, nil
+}
+
+// Begin acquires a shared maintenance gate for the full transaction lifetime.
 func Begin() (*Tx, error) {
+	maintenanceWriteGate.RLock()
+	return beginWithGate(maintenanceWriteGate.RUnlock)
+}
+
+// BeginMaintenance waits until all in-process StremThru writers have drained,
+// then blocks new writes until the reset transaction commits or rolls back.
+func BeginMaintenance() (*Tx, error) {
+	maintenanceWriteGate.Lock()
+	return beginWithGate(maintenanceWriteGate.Unlock)
+}
+
+// BeginAdvisoryLock is only for PostgreSQL advisory lock handles. The lock
+// itself is not a content writer and may outlive the entire reset; taking the
+// shared maintenance gate here would deadlock BeginMaintenance.
+func BeginAdvisoryLock() (*Tx, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, err

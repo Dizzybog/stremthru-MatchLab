@@ -309,7 +309,12 @@ func SaveJobLog[T any](name string, id string, status string, data *T, errorMsg 
 		jsonString = "null"
 	}
 
-	_, err = db.Exec(
+	executor := db.Exec
+	if name == "reset-matchlab" {
+		// The reset's own heartbeat must not wait on the global writer gate.
+		executor = db.ExecMaintenanceStatus
+	}
+	_, err = executor(
 		query_save_job_log,
 		name,
 		id,
