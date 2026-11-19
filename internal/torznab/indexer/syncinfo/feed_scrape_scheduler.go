@@ -173,4 +173,3 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 	}
 	log.Info("scraped torznab feed", "indexer", indexer.Name, "fetched", fetched, "accepted", len(items))
 }
-
