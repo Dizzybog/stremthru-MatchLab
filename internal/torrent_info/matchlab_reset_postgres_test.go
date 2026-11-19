@@ -32,8 +32,9 @@ func TestPostgresFastMatchLabResetIntegration(t *testing.T) {
 	db.SetForTesting(sqlDB, t.Cleanup)
 
 	// Dedicated test database only. No application/user data may exist here.
-	_, err = sqlDB.Exec(`
-		CREATE TABLE public.torrent_info (
+	// pgx extended query protocol needs one statement per Exec call.
+	for _, statement := range []string{
+		`CREATE TABLE public.torrent_info (
 			hash text PRIMARY KEY,
 			t_title text NOT NULL,
 			parser_version integer NOT NULL DEFAULT 0,
@@ -43,38 +44,40 @@ func TestPostgresFastMatchLabResetIntegration(t *testing.T) {
 			matchlab_retry_at timestamptz,
 			matchlab_parse_retry_at timestamptz,
 			matchlab_file_revision bigint NOT NULL DEFAULT 0
-		);
-		CREATE INDEX idx_test_info_pending ON public.torrent_info (hash)
-			WHERE matchlab_mapped_at IS NULL;
-		CREATE INDEX idx_test_info_parser ON public.torrent_info (parser_version);
-		CREATE INDEX idx_test_info_parser_hash ON public.torrent_info (parser_version, hash);
-		CREATE TABLE public.torrent_stream (
+		)`,
+		`CREATE INDEX idx_test_info_pending ON public.torrent_info (hash)
+			WHERE matchlab_mapped_at IS NULL`,
+		`CREATE INDEX idx_test_info_parser ON public.torrent_info (parser_version)`,
+		`CREATE INDEX idx_test_info_parser_hash ON public.torrent_info (parser_version, hash)`,
+		`CREATE TABLE public.torrent_stream (
 			h text NOT NULL,
 			p text NOT NULL,
 			src text NOT NULL DEFAULT '',
 			sid character varying NOT NULL DEFAULT '',
 			asid text NOT NULL DEFAULT '',
 			PRIMARY KEY (h, p)
-		);
-		CREATE INDEX idx_test_sid ON public.torrent_stream (sid text_pattern_ops);
-		CREATE INDEX idx_test_asid ON public.torrent_stream (asid text_pattern_ops);
-		CREATE INDEX idx_test_src_sid ON public.torrent_stream (src, sid);
-		CREATE INDEX idx_test_sid_expression ON public.torrent_stream (lower(sid));
-		CREATE INDEX idx_test_sid_predicate ON public.torrent_stream (h) WHERE sid <> '*';
-		CREATE TABLE public.imdb_torrent (hash text NOT NULL, tid text NOT NULL);
-		CREATE TABLE public.anidb_torrent (hash text NOT NULL, tid text NOT NULL);
-		INSERT INTO public.torrent_info
+		)`,
+		`CREATE INDEX idx_test_sid ON public.torrent_stream (sid text_pattern_ops)`,
+		`CREATE INDEX idx_test_asid ON public.torrent_stream (asid text_pattern_ops)`,
+		`CREATE INDEX idx_test_src_sid ON public.torrent_stream (src, sid)`,
+		`CREATE INDEX idx_test_sid_expression ON public.torrent_stream (lower(sid))`,
+		`CREATE INDEX idx_test_sid_predicate ON public.torrent_stream (h) WHERE sid <> '*'`,
+		`CREATE TABLE public.imdb_torrent (hash text NOT NULL, tid text NOT NULL)`,
+		`CREATE TABLE public.anidb_torrent (hash text NOT NULL, tid text NOT NULL)`,
+		`INSERT INTO public.torrent_info
 			(hash, t_title, parser_version, parser_input, parsed_at,
 			 matchlab_mapped_at, matchlab_retry_at, matchlab_parse_retry_at, matchlab_file_revision)
 		VALUES ('hash-a', 'Example S01E01', 10000, 'Example S01E01', now(), now(), now(), now(), 14),
-		       ('hash-b', 'Example S01E02', 10000, 'Example S01E02', now(), now(), now(), now(), 8);
-		INSERT INTO public.torrent_stream(h, p, src, sid, asid)
+		       ('hash-b', 'Example S01E02', 10000, 'Example S01E02', now(), now(), now(), now(), 8)`,
+		`INSERT INTO public.torrent_stream(h, p, src, sid, asid)
 		VALUES ('hash-a', '/S01E01.mkv', 'dht', 'tt1234567:1:1', '42:1'),
-		       ('hash-b', '/S01E02.mkv', 'dht', 'tt1234567:1:2', '42:2');
-		INSERT INTO public.imdb_torrent VALUES ('hash-a', 'tt1234567');
-		INSERT INTO public.anidb_torrent VALUES ('hash-b', '42');
-	`)
-	require.NoError(t, err)
+		       ('hash-b', '/S01E02.mkv', 'dht', 'tt1234567:1:2', '42:2')`,
+		`INSERT INTO public.imdb_torrent VALUES ('hash-a', 'tt1234567')`,
+		`INSERT INTO public.anidb_torrent VALUES ('hash-b', '42')`,
+	} {
+		_, err = sqlDB.Exec(statement)
+		require.NoError(t, err, "SQL: %s", statement)
+	}
 
 	// An external view is an unsupported dependency. DROP COLUMN RESTRICT
 	// must fail atomically without leaving any column/index half-reset.
