@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MunifTanjim/go-ptt"
 	"github.com/MunifTanjim/stremthru/core"
 	"github.com/MunifTanjim/stremthru/internal/anidb"
 	"github.com/MunifTanjim/stremthru/internal/buddy"
@@ -29,7 +30,6 @@ import (
 	"github.com/MunifTanjim/stremthru/store"
 	"github.com/MunifTanjim/stremthru/stremio"
 	"github.com/alitto/pond/v2"
-	"github.com/MunifTanjim/go-ptt"
 )
 
 var streamTemplate = stremio_transformer.StreamTemplateDefault
