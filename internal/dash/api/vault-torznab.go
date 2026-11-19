@@ -21,6 +21,7 @@ type TorznabIndexerResponse struct {
 	SearchMode        string  `json:"search_mode"`
 	Disabled          bool    `json:"disabled"`
 	OnlyAnime         bool    `json:"only_anime"`
+	ScrapeFeed        bool    `json:"scrape_feed"`
 	CreatedAt         string  `json:"created_at"`
 	UpdatedAt         string  `json:"updated_at"`
 }
@@ -40,6 +41,7 @@ func toTorznabIndexerResponse(item *torznab_indexer.TorznabIndexer) TorznabIndex
 		SearchMode:        string(item.SearchMode),
 		Disabled:          item.Disabled,
 		OnlyAnime:         item.OnlyAnime,
+		ScrapeFeed:        item.ScrapeFeed,
 		CreatedAt:         item.CAt.Format(time.RFC3339),
 		UpdatedAt:         item.UAt.Format(time.RFC3339),
 	}
@@ -68,6 +70,7 @@ type CreateTorznabIndexerRequest struct {
 	RateLimitConfigId *string                     `json:"rate_limit_config_id"`
 	SearchMode        torznab_indexer.SearchMode  `json:"search_mode"`
 	OnlyAnime         bool                        `json:"only_anime"`
+	ScrapeFeed        bool                        `json:"scrape_feed"`
 }
 
 var ErrorInvalidTorznabCredentials = errors.New("invalid torznab credentials or connection failed")
@@ -113,6 +116,7 @@ func handleCreateTorznabIndexer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	indexer.OnlyAnime = request.OnlyAnime
+	indexer.ScrapeFeed = request.ScrapeFeed
 
 	if !indexer.SearchMode.IsValid() {
 		ErrorBadRequest(r).Append(Error{
@@ -182,6 +186,7 @@ type UpdateTorznabIndexerRequest struct {
 	RateLimitConfigId *string                    `json:"rate_limit_config_id"`
 	SearchMode        torznab_indexer.SearchMode `json:"search_mode"`
 	OnlyAnime         bool                       `json:"only_anime"`
+	ScrapeFeed        bool                       `json:"scrape_feed"`
 }
 
 func handleUpdateTorznabIndexer(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +228,7 @@ func handleUpdateTorznabIndexer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	indexer.OnlyAnime = request.OnlyAnime
+	indexer.ScrapeFeed = request.ScrapeFeed
 
 	if !indexer.SearchMode.IsValid() {
 		ErrorBadRequest(r).Append(Error{
