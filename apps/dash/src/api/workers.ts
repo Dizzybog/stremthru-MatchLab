@@ -34,6 +34,7 @@ export type MatchLabResetStatus = {
   include_parsing: boolean;
   torrents: number;
   stream_files: number;
+  fast_reset?: boolean;
   updated_at?: string;
   error?: string;
 };
