@@ -7,6 +7,8 @@ import { useLocalStorage } from "react-use";
 import { toast } from "sonner";
 
 import {
+  MatchLabResetStatus,
+  useMatchLabResetStatus,
   useWorkerDetails,
   useWorkerJobLogs,
   useWorkerMutation,
@@ -310,70 +312,94 @@ function ResetWorkerProgressButton({
 function ResetMatchLabButton({
   mutation,
   enabled,
+  status,
 }: {
   mutation: ReturnType<typeof useWorkerMutation>["resetMatchLab"];
   enabled: boolean;
+  status?: MatchLabResetStatus;
 }) {
   const [includeParsing, setIncludeParsing] = useState(false);
   if (!enabled) {
     return null;
   }
 
+  const running = status?.status === "started";
+
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button disabled={mutation.isPending} size="sm" variant="destructive">
-          Reset MatchLab Mapping
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Reset all MatchLab mappings?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will clear IMDb/AniDB torrent mappings and file SID/ASID values
-            for every stored torrent. Torrent hashes, files, and metadata are
-            preserved. Results may temporarily disappear while background workers
-            rebuild the mappings.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="flex items-start gap-3">
-          <Checkbox
-            checked={includeParsing}
-            id="matchlab-reset-parsing"
-            onCheckedChange={(checked) => setIncludeParsing(checked === true)}
-          />
-          <Label htmlFor="matchlab-reset-parsing">
-            Also reset parsing (reparse all torrent titles before rematching)
-          </Label>
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction asChild>
-            <Button
-              disabled={mutation.isPending}
-              onClick={() => {
-                toast.promise(mutation.mutateAsync(includeParsing), {
-                  error(err: APIError) {
-                    console.error(err);
-                    return { closeButton: true, message: err.message };
-                  },
-                  loading: "Resetting MatchLab data...",
-                  success(data) {
-                    return {
+    <div className="flex flex-col items-end gap-1">
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            disabled={mutation.isPending || running}
+            size="sm"
+            variant="destructive"
+          >
+            {running ? "Reset in progress..." : "Reset MatchLab Mapping"}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset all MatchLab mappings?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear IMDb/AniDB torrent mappings and file SID/ASID values
+              for every stored torrent. Torrent hashes, files, and metadata are
+              preserved. The operation runs in the background and its status
+              will be shown here.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="flex items-start gap-3">
+            <Checkbox
+              checked={includeParsing}
+              id="matchlab-reset-parsing"
+              onCheckedChange={(checked) => setIncludeParsing(checked === true)}
+            />
+            <Label htmlFor="matchlab-reset-parsing">
+              Also reset parsing (reparse all torrent titles before rematching)
+            </Label>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                disabled={mutation.isPending || running}
+                onClick={() => {
+                  toast.promise(mutation.mutateAsync(includeParsing), {
+                    error(err: APIError) {
+                      console.error(err);
+                      return { closeButton: true, message: err.message };
+                    },
+                    loading: "Starting MatchLab reset...",
+                    success: {
                       closeButton: true,
-                      message: `Reset ${data.torrents} torrents and cleared ${data.stream_files} file identities. Workers will rebuild them.`,
-                    };
-                  },
-                });
-              }}
-              variant="destructive"
-            >
-              Reset all
-            </Button>
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+                      message: "Reset started. Progress is shown in Workers.",
+                    },
+                  });
+                }}
+                variant="destructive"
+              >
+                Start reset
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {running && (
+        <span className="text-muted-foreground text-xs">
+          Reset is running. Refreshing status automatically...
+        </span>
+      )}
+      {status?.status === "done" && (
+        <span className="text-muted-foreground text-xs">
+          Last reset completed: {status.torrents.toLocaleString()} torrents,{" "}
+          {status.stream_files.toLocaleString()} file identities cleared.
+        </span>
+      )}
+      {(status?.status === "failed" || status?.status === "interrupted") && (
+        <span className="text-destructive text-xs">
+          Reset {status.status}: {status.error || "check server logs"}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -393,6 +419,7 @@ function RouteComponent() {
   );
 
   const jobLogs = useWorkerJobLogs(selectedWorkerId);
+  const matchLabReset = useMatchLabResetStatus(selectedWorkerId);
   const { deleteJobLog, purgeJobLogs, purgeTemporaryFiles, resetProgress, resetMatchLab } =
     useWorkerMutation(selectedWorkerId);
 
@@ -488,6 +515,7 @@ function RouteComponent() {
               enabled={selectedWorkerId === "map-imdb-torrent" &&
                 workerDetails.data?.[selectedWorkerId]?.title === "Map IMDb/AniDB via MatchLab"}
               mutation={resetMatchLab}
+              status={matchLabReset.data}
             />
             <AlertDialog>
               <AlertDialogTrigger asChild>

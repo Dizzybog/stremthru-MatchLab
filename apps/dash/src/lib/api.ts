@@ -78,7 +78,13 @@ export async function api<
 
   if (!/application\/json/.test(contentType ?? "")) {
     if (res.status !== 204) {
-      throw new Error(`Unsupported Content-Type: ${contentType}`);
+      // The reverse proxy can return an HTML 404/502/504 page. Include the
+      // HTTP status and final URL so these errors are not mistaken for API
+      // success or a database reset that silently did nothing.
+      const responsePath = new URL(res.url, window.location.href).pathname;
+      throw new Error(
+        `HTTP ${res.status} ${res.statusText} at ${responsePath}: expected JSON, got ${contentType || "no Content-Type"}`,
+      );
     }
   }
 
