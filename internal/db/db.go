@@ -129,6 +129,13 @@ var getExec = func(db Executor) dbExec {
 
 var execWithoutMaintenanceGate = getExec(db)
 
+// WaitForMaintenance is a cooperative checkpoint for background workers.
+// It prevents new work from starting while a reset owns the writer gate.
+func WaitForMaintenance() {
+	maintenanceWriteGate.RLock()
+	maintenanceWriteGate.RUnlock()
+}
+
 // Exec blocks ordinary StremThru writes while the global reset is active.
 // Each standalone statement holds a shared gate until it finishes.
 func Exec(query string, args ...any) (sql.Result, error) {
