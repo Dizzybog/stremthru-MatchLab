@@ -36,7 +36,7 @@ func postgresResetColumns(tx *db.Tx, table string, columnNames []string, alterSQ
 	}
 	quoted := make([]string, 0, len(columnNames))
 	for _, name := range columnNames {
-		quoted = append(quoted, "'"+name+"'")
+		quoted = append(quoted, "'" + name + "'")
 	}
 
 	// pg_depend catches plain index keys, INCLUDE columns, expression indexes
