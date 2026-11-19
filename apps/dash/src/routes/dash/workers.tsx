@@ -358,9 +358,11 @@ function ResetMatchLabButton({
                     return { closeButton: true, message: err.message };
                   },
                   loading: "Resetting MatchLab data...",
-                  success: {
-                    closeButton: true,
-                    message: "MatchLab data reset. Background workers will rebuild it.",
+                  success(data) {
+                    return {
+                      closeButton: true,
+                      message: `Reset ${data.torrents} torrents and cleared ${data.stream_files} file identities. Workers will rebuild them.`,
+                    };
                   },
                 });
               }}
