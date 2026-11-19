@@ -135,6 +135,36 @@ func TestMatchLabAnonymousAnimeSeasonSentinel(t *testing.T) {
 	}
 }
 
+func TestMatchLabEligibleOpticalMedia(t *testing.T) {
+	for _, test := range []struct {
+		path string
+		want bool
+	}{
+		{"/Show/S01E01.mkv", true},
+		{"/DVD/VIDEO_TS/VTS_01_1.VOB", true},
+		{"/Show.Season.1.ISO", true},
+		{"/Subs/subtitle.srt", false},
+		{"/Archive/package.rar", false},
+	} {
+		file := torrent_stream.File{Path: test.path}
+		if got := matchlabEligibleFile(file); got != test.want {
+			t.Errorf("matchlabEligibleFile(%q) = %v, want %v", test.path, got, test.want)
+		}
+	}
+}
+
+func TestMatchLabRetryDecision(t *testing.T) {
+	if !matchlabMappingNeedsRetry(matchLabMapping{}) {
+		t.Fatal("an unmatched title must remain eligible for later reprocessing")
+	}
+	if matchlabMappingNeedsRetry(matchLabMapping{IMDbIDs: []string{"tt1234567"}}) {
+		t.Fatal("verified IMDb title should be considered mapped")
+	}
+	if matchlabMappingNeedsRetry(matchLabMapping{AniDB: []anidb.AniDBTorrent{{TId: "42"}}}) {
+		t.Fatal("verified AniDB title should be considered mapped")
+	}
+}
+
 func TestMatchLabCombinedPath(t *testing.T) {
 	file := torrent_stream.File{Path: "/Show/S02E04.mkv"}
 	got := matchlabFilePath("Supernatural S01-S12", file)
