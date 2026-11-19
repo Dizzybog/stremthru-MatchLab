@@ -390,8 +390,9 @@ function ResetMatchLabButton({
       )}
       {status?.status === "done" && (
         <span className="text-muted-foreground text-xs">
-          Last reset completed: {status.torrents.toLocaleString()} torrents,{" "}
-          {status.stream_files.toLocaleString()} file identities cleared.
+          {status.fast_reset
+            ? "PostgreSQL fast reset completed. Mapping columns and dependent indexes were rebuilt; row counts skipped for speed."
+            : `Last reset completed: ${status.torrents.toLocaleString()} torrents, ${status.stream_files.toLocaleString()} file identities cleared.`}
         </span>
       )}
       {(status?.status === "failed" || status?.status === "interrupted") && (
