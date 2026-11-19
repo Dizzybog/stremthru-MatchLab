@@ -203,3 +203,22 @@ func TestResetSelectedMatchLabMappingOnlyPreservesParser(t *testing.T) {
 	require.Len(t, pending, 1)
 	require.Equal(t, hash, pending[0].Hash)
 }
+
+
+func TestResetAllMatchLabMappingsReportsAffectedRows(t *testing.T) {
+	hash, path := prepareMatchLabResetTest(t, "5")
+	stats, err := ResetAllMatchLabMappingsWithStats(false)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), stats.Torrents)
+	require.Equal(t, int64(1), stats.StreamFiles)
+
+	var sid string
+	require.NoError(t, db.QueryRow("SELECT sid FROM torrent_stream WHERE h = ? AND p = ?", hash, path).Scan(&sid))
+	require.Equal(t, "*", sid)
+
+	// A repeated reset should not claim to have cleared stale SID rows again.
+	stats, err = ResetAllMatchLabMappingsWithStats(false)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), stats.Torrents)
+	require.Zero(t, stats.StreamFiles)
+}
