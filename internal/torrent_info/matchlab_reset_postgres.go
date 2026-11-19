@@ -55,7 +55,7 @@ func postgresResetColumns(tx *db.Tx, table string, columnNames []string, alterSQ
 		 AND a.attnum = d.refobjsubid
 		LEFT JOIN pg_constraint AS c ON c.conindid = i.indexrelid
 		WHERE i.indrelid = ?::regclass
-		  AND a.attname IN (`+strings.Join(quoted, ", ")+`)
+		  AND a.attname IN (` + strings.Join(quoted, ", ") + `)
 		ORDER BY 1`, table)
 	if err != nil {
 		return fmt.Errorf("inspect %s indexes: %w", table, err)
@@ -112,7 +112,7 @@ func postgresResetMatchLabMetadata(tx *db.Tx, includeParsing bool) error {
 		ADD COLUMN matchlab_mapped_at timestamptz,
 		ADD COLUMN matchlab_retry_at timestamptz,
 		ADD COLUMN matchlab_parse_retry_at timestamptz,
-		ADD COLUMN matchlab_file_revision bigint NOT NULL DEFAULT `+fmt.Sprint(nextRevision)
+		ADD COLUMN matchlab_file_revision bigint NOT NULL DEFAULT ` + fmt.Sprint(nextRevision)
 	if includeParsing {
 		infoColumns = append(infoColumns, "parser_version", "parser_input", "parsed_at")
 		infoDDL += `,
