@@ -22,3 +22,18 @@ func TestRecordQuery(t *testing.T) {
 
 	assert.Equal(t, expected_query, get_record_query(1))
 }
+
+func TestNormalizeImportedStreamIdentity(t *testing.T) {
+	original := InsertData{File: File{SId: "tt1234567:1:2", ASId: "42:2", Path: "/Episode.mkv"}}
+
+	native := original
+	normalizeImportedStreamIdentity(&native, false)
+	assert.Equal(t, original.SId, native.SId)
+	assert.Equal(t, original.ASId, native.ASId)
+
+	external := original
+	normalizeImportedStreamIdentity(&external, true)
+	assert.Empty(t, external.SId)
+	assert.Empty(t, external.ASId)
+	assert.Equal(t, original.Path, external.Path)
+}
