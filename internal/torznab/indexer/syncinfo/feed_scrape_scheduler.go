@@ -10,16 +10,15 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/job"
 	"github.com/MunifTanjim/stremthru/internal/logger"
 	"github.com/MunifTanjim/stremthru/internal/torrent_info"
-	tznc "github.com/MunifTanjim/stremthru/internal/torznab/client"
 	torznab_indexer "github.com/MunifTanjim/stremthru/internal/torznab/indexer"
 	"github.com/alitto/pond/v2"
 )
 
 const (
 	feedScrapeSchedulerId = "scrape-torznab-feed"
-	feedScrapeInterval = 10 * time.Minute
-	feedScrapeMaxItems = 100
-	feedScrapeTimeout = 45 * time.Second
+	feedScrapeInterval    = 10 * time.Minute
+	feedScrapeMaxItems    = 100
+	feedScrapeTimeout     = 45 * time.Second
 )
 
 // A blank Torznab search requests the newest releases rather than looking up
@@ -118,12 +117,12 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 		results = results[:feedScrapeMaxItems]
 	}
 
-	// Only download torrent files for entries missing an infohash.
-	// Existing hashes can be ingested directly without fetching the magnet.
+	// Reuse the existing Torznab magnet-resolution behavior. Missing magnet
+	// metadata may hide the file list required for torrent_stream mapping.
 	fetchPool := pond.NewPool(4)
 	for i := range results {
 		item := &results[i]
-		if item.Hash == "" && item.SourceLink != "" {
+		if item.HasMissingData() && item.SourceLink != "" {
 			fetchPool.Submit(func() {
 				if err := item.EnsureMagnet(ctx); err != nil {
 					log.Debug("failed to resolve feed infohash", "indexer", indexer.Name, "error", err)
@@ -175,6 +174,3 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 	log.Info("scraped torznab feed", "indexer", indexer.Name, "fetched", fetched, "accepted", len(items))
 }
 
-// Keep the common Torznab client type visible to compile-time checks so the
-// feed job follows the same client contract as the search-based sync.
-var _ tznc.Indexer
