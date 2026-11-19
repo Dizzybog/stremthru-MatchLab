@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func prepareMatchLabResetTest(t *testing.T) (hash, path string) {
+func prepareMatchLabResetTest(t *testing.T, hashDigit string) (hash, path string) {
 	t.Helper()
 	setupTestDB(t)
-	hash = strings.Repeat("e", 40)
+	hash = strings.Repeat(hashDigit, 40)
 	path = "/Series/S01E02.mkv"
 	require.NoError(t, Upsert([]TorrentInfoInsertData{{
 		Hash: hash, TorrentTitle: "Example Series S01E02", Source: TorrentInfoSourceDHT,
@@ -97,13 +97,13 @@ func verifyMatchLabReset(t *testing.T, hash, path string, includeParsing bool) {
 }
 
 func TestResetAllMatchLabMappingsOnly(t *testing.T) {
-	hash, path := prepareMatchLabResetTest(t)
+	hash, path := prepareMatchLabResetTest(t, "e")
 	require.NoError(t, ResetAllMatchLabMappings(false))
 	verifyMatchLabReset(t, hash, path, false)
 }
 
 func TestResetAllMatchLabMappingsAndParsing(t *testing.T) {
-	hash, path := prepareMatchLabResetTest(t)
+	hash, path := prepareMatchLabResetTest(t, "f")
 	require.NoError(t, ResetAllMatchLabMappings(true))
 	verifyMatchLabReset(t, hash, path, true)
 }
