@@ -21,9 +21,7 @@ jobs:
       - name: Install Dependencies
         run: go get .
       - name: Check Format
-        run: |
-          gofmt -d internal/torznab/indexer/syncinfo/feed_scrape_scheduler.go
-          test -z "$(gofmt -l . | tee /dev/stderr)"
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
       - name: Lint
         run: go vet
       - name: Build
