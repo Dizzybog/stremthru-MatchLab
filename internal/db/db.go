@@ -46,6 +46,7 @@ var CurrentTimestamp string
 var FnJSONGroupArray string
 var FnJSONObject string
 var FnMax string
+
 // maintenanceWriteGate blocks new StremThru writes and drains active
 // transactions while a global MatchLab mapping reset owns the database.
 // Read-only queries and the maintenance job heartbeat remain available.
