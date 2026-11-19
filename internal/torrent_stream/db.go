@@ -223,7 +223,7 @@ func cleanupFilesWithNameAsPath(hash string, files Files) {
 			continue
 		}
 
-		if f.SId != "" && f.SId != "*" {
+		if !config.Integration.MatchLab.IsEnabled() && f.SId != "" && f.SId != "*" {
 			if _, err := db.Exec(
 				fmt.Sprintf(
 					`UPDATE %s SET %s = ? WHERE %s = ? AND %s LIKE '%%/%s' AND %s IN ('','*')`,
@@ -242,7 +242,7 @@ func cleanupFilesWithNameAsPath(hash string, files Files) {
 			}
 		}
 
-		if f.ASId != "" {
+		if !config.Integration.MatchLab.IsEnabled() && f.ASId != "" {
 			if _, err := db.Exec(
 				fmt.Sprintf(
 					`UPDATE %s SET %s = ? WHERE %s = ? AND %s LIKE '%%/%s' AND %s = ''`,
@@ -512,6 +512,16 @@ type InsertData struct {
 	File
 }
 
+// Imported file identities may come from an indexer, a debrid provider or
+// another Stremio addon. Only the MatchLab mapping transaction may own these
+// columns while the external matcher is configured.
+func normalizeImportedStreamIdentity(item *InsertData, matchLabEnabled bool) {
+	if matchLabEnabled {
+		item.SId = ""
+		item.ASId = ""
+	}
+}
+
 var record_streams_query_before_values = fmt.Sprintf(
 	"INSERT INTO %s AS ts (%s) VALUES ",
 	TableName,
@@ -637,6 +647,7 @@ func Record(items []InsertData, discardIdx bool) error {
 		args := make([]any, 0, count*9)
 		for i := range cItems {
 			item := &cItems[i]
+			normalizeImportedStreamIdentity(item, config.Integration.MatchLab.IsEnabled())
 			if !strings.HasPrefix(item.Path, "/") {
 				continue
 			}
