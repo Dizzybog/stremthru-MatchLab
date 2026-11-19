@@ -15,7 +15,6 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/job_log"
 	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/shared"
-	"github.com/MunifTanjim/stremthru/internal/torrent_info"
 	"github.com/MunifTanjim/stremthru/internal/util"
 	"github.com/MunifTanjim/stremthru/internal/worker"
 )
@@ -309,29 +308,43 @@ func handleWorkerProgress(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Only the active MatchLab worker exposes the global reset action.
+// The MatchLab reset is intentionally asynchronous: updating millions of
+// torrent_stream rows can exceed the HTTP proxy timeout. GET returns persistent
+// job status so a refresh or a second dashboard instance can track completion.
 func handleResetMatchLabWorker(w http.ResponseWriter, r *http.Request) {
-	if !shared.IsMethod(r, http.MethodPost) {
-		ErrorMethodNotAllowed(r).Send(w, r)
-		return
-	}
 	if r.PathValue("id") != "map-imdb-torrent" || !matchlab.Enabled() {
 		ErrorBadRequest(r).WithMessage("MatchLab worker is not enabled").Send(w, r)
 		return
 	}
-	var request struct {
-		IncludeParsing bool `json:"include_parsing"`
+	switch r.Method {
+	case http.MethodGet:
+		status, err := worker.GetMatchLabResetStatus()
+		if err != nil {
+			SendError(w, r, err)
+			return
+		}
+		SendData(w, r, http.StatusOK, status)
+	case http.MethodPost:
+		var request struct {
+			IncludeParsing bool `json:"include_parsing"`
+		}
+		if err := ReadRequestBodyJSON(r, &request); err != nil {
+			SendError(w, r, err)
+			return
+		}
+		status, err := worker.StartMatchLabReset(request.IncludeParsing)
+		if err != nil {
+			if errors.Is(err, worker.ErrMatchLabResetInProgress) {
+				ErrorLocked(r).WithMessage(err.Error()).WithCause(err).Send(w, r)
+			} else {
+				SendError(w, r, err)
+			}
+			return
+		}
+		SendData(w, r, http.StatusAccepted, status)
+	default:
+		ErrorMethodNotAllowed(r).Send(w, r)
 	}
-	if err := ReadRequestBodyJSON(r, &request); err != nil {
-		SendError(w, r, err)
-		return
-	}
-	stats, err := torrent_info.ResetAllMatchLabMappingsWithStats(request.IncludeParsing)
-	if err != nil {
-		SendError(w, r, err)
-		return
-	}
-	SendData(w, r, 200, stats)
 }
 
 func AddWorkerEndpoints(router *http.ServeMux) {
