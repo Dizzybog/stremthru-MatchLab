@@ -107,3 +107,99 @@ func TestResetAllMatchLabMappingsAndParsing(t *testing.T) {
 	require.NoError(t, ResetAllMatchLabMappings(true))
 	verifyMatchLabReset(t, hash, path, true)
 }
+
+
+func TestResetSelectedMatchLabMappingsDoesNotTouchOtherHashes(t *testing.T) {
+	hash, path := prepareMatchLabResetTest(t, "9")
+	otherHash := strings.Repeat("8", 40)
+	otherPath := "/Other/S01E01.mkv"
+	require.NoError(t, Upsert([]TorrentInfoInsertData{{
+		Hash: otherHash, TorrentTitle: "Other Show S01E01", Source: TorrentInfoSourceDHT,
+		Size: 1024, Files: torrent_stream.Files{{
+			Path: otherPath, Name: "S01E01.mkv", Size: 1024, SId: "tt7777777:1:1", ASId: "777:1",
+		}},
+	}}, TorrentInfoCategorySeries, false))
+	_, err := db.Exec(
+		"UPDATE torrent_info SET parser_input = t_title, parser_version = ?, matchlab_mapped_at = "+
+			db.CurrentTimestamp+", matchlab_file_revision = 9 WHERE hash = ?",
+		matchlab.ParserVersion, otherHash,
+	)
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO imdb_torrent (hash, tid) VALUES (?, ?)", otherHash, "tt7777777")
+	require.NoError(t, err)
+
+	require.NoError(t, ResetMatchLabMappingsByHashes([]string{hash}, true))
+
+	var sid, asid string
+	require.NoError(t, db.QueryRow(
+		"SELECT sid, asid FROM torrent_stream WHERE h = ? AND p = ?", hash, path,
+	).Scan(&sid, &asid))
+	require.Equal(t, "*", sid)
+	require.Empty(t, asid)
+	var affected int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM imdb_torrent WHERE hash = ?", hash).Scan(&affected))
+	require.Zero(t, affected)
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM anidb_torrent WHERE hash = ?", hash).Scan(&affected))
+	require.Zero(t, affected)
+
+	var version int
+	var revision int64
+	var mappedAt sql.NullInt64
+	require.NoError(t, db.QueryRow(
+		"SELECT parser_version, matchlab_mapped_at, matchlab_file_revision FROM torrent_info WHERE hash = ?", hash,
+	).Scan(&version, &mappedAt, &revision))
+	require.Zero(t, version)
+	require.False(t, mappedAt.Valid)
+	require.Equal(t, int64(4), revision)
+
+	// The other hash stays mapped. This endpoint must not emulate a global reset.
+	require.NoError(t, db.QueryRow(
+		"SELECT sid, asid FROM torrent_stream WHERE h = ? AND p = ?", otherHash, otherPath,
+	).Scan(&sid, &asid))
+	require.Equal(t, "tt7777777:1:1", sid)
+	require.Equal(t, "777:1", asid)
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM imdb_torrent WHERE hash = ?", otherHash).Scan(&affected))
+	require.Equal(t, 1, affected)
+	require.NoError(t, db.QueryRow(
+		"SELECT parser_version, matchlab_mapped_at, matchlab_file_revision FROM torrent_info WHERE hash = ?", otherHash,
+	).Scan(&version, &mappedAt, &revision))
+	require.Equal(t, matchlab.ParserVersion, version)
+	require.True(t, mappedAt.Valid)
+	require.Equal(t, int64(9), revision)
+
+	// Existing torrent file cache must reflect the cleared SID/ASID.
+	files, err := torrent_stream.GetFilesByHashes([]string{hash})
+	require.NoError(t, err)
+	require.Len(t, files[hash], 1)
+	require.Equal(t, "*", files[hash][0].SId)
+	require.Empty(t, files[hash][0].ASId)
+
+	toParse, err := GetUnparsed(10)
+	require.NoError(t, err)
+	require.Len(t, toParse, 1)
+	require.Equal(t, hash, toParse[0].Hash)
+}
+
+func TestResetSelectedMatchLabMappingOnlyPreservesParser(t *testing.T) {
+	hash, path := prepareMatchLabResetTest(t, "7")
+	require.NoError(t, ResetMatchLabMappingsByHashes([]string{hash}, false))
+
+	var version int
+	var parserInput string
+	var mappedAt sql.NullInt64
+	require.NoError(t, db.QueryRow(
+		"SELECT parser_version, parser_input, matchlab_mapped_at FROM torrent_info WHERE hash = ?", hash,
+	).Scan(&version, &parserInput, &mappedAt))
+	require.Equal(t, matchlab.ParserVersion, version)
+	require.Equal(t, "Example Series S01E02", parserInput)
+	require.False(t, mappedAt.Valid)
+
+	var sid string
+	require.NoError(t, db.QueryRow("SELECT sid FROM torrent_stream WHERE h = ? AND p = ?", hash, path).Scan(&sid))
+	require.Equal(t, "*", sid)
+
+	pending, err := GetMatchLabPendingHashes(10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.Equal(t, hash, pending[0].Hash)
+}
