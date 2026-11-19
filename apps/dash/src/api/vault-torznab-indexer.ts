@@ -8,6 +8,7 @@ export type TorznabIndexer = {
   id: number;
   name: string;
   only_anime: boolean;
+  scrape_feed: boolean;
   rate_limit_config_id: null | string;
   search_mode: TorznabIndexerSearchMode;
   type: TorznabIndexerType;
@@ -19,6 +20,7 @@ type CreateTorznabIndexerParams = {
   api_key: string;
   name: string;
   only_anime?: boolean;
+  scrape_feed?: boolean;
   rate_limit_config_id: null | string;
   search_mode?: TorznabIndexerSearchMode;
   type?: TorznabIndexerType;
@@ -32,6 +34,7 @@ type UpdateTorznabIndexerParams = {
   api_key?: string;
   name?: string;
   only_anime?: boolean;
+  scrape_feed?: boolean;
   rate_limit_config_id: null | string;
   search_mode?: TorznabIndexerSearchMode;
 };
