@@ -90,7 +90,19 @@ export function useWorkerMutation(workerId: string) {
     },
   });
 
-  return { deleteJobLog, purgeJobLogs, purgeTemporaryFiles, resetProgress };
+  const resetMatchLab = useMutation({
+    mutationFn: async (includeParsing: boolean) => {
+      await api(`/workers/${workerId}/matchlab/reset`, {
+        method: "POST",
+        body: JSON.stringify({ include_parsing: includeParsing }),
+      });
+    },
+    onSuccess: async (_, __, ___, ctx) => {
+      await ctx.client.invalidateQueries({ queryKey: ["/workers/{id}/job-logs", workerId] });
+    },
+  });
+
+  return { deleteJobLog, purgeJobLogs, purgeTemporaryFiles, resetProgress, resetMatchLab };
 }
 
 export function useWorkerTemporaryFiles(workerId: string) {
