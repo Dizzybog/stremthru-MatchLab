@@ -2,7 +2,6 @@ package worker
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -164,6 +163,3 @@ func runMatchLabReset(id string, data matchLabResetData, lock db.AdvisoryLock) {
 	}
 }
 
-func FormatMatchLabResetStatus(status MatchLabResetStatus) string {
-	return fmt.Sprintf("MatchLab reset %s (%s)", status.ID, status.Status)
-}
