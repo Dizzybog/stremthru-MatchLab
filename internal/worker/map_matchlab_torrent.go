@@ -706,6 +706,7 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 			return err
 		}
 		for {
+			db.WaitForMaintenance()
 			pending, err := torrent_info.GetMatchLabPendingHashes(200)
 			if err != nil {
 				return err
