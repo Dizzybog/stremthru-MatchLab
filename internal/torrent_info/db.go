@@ -1793,7 +1793,9 @@ func ResetAllMatchLabMappings(includeParsing bool) error {
 // A successful response reports actual affected row counts from the database.
 func ResetAllMatchLabMappingsWithStats(includeParsing bool) (MatchLabResetStats, error) {
 	var stats MatchLabResetStats
-	tx, err := db.Begin()
+	// Drain active StremThru writers before touching shared mapping tables.
+	// Other in-process writes resume automatically after commit or rollback.
+	tx, err := db.BeginMaintenance()
 	if err != nil {
 		return stats, err
 	}
