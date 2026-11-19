@@ -92,10 +92,14 @@ export function useWorkerMutation(workerId: string) {
 
   const resetMatchLab = useMutation({
     mutationFn: async (includeParsing: boolean) => {
-      await api(`/workers/${workerId}/matchlab/reset`, {
-        method: "POST",
-        body: { include_parsing: includeParsing },
-      });
+      const { data } = await api<{ torrents: number; stream_files: number }>(
+        `/workers/${workerId}/matchlab/reset`,
+        {
+          method: "POST",
+          body: { include_parsing: includeParsing },
+        },
+      );
+      return data;
     },
     onSuccess: async (_, __, ___, ctx) => {
       await ctx.client.invalidateQueries({ queryKey: ["/workers/{id}/job-logs", workerId] });

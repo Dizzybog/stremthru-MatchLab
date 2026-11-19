@@ -326,11 +326,12 @@ func handleResetMatchLabWorker(w http.ResponseWriter, r *http.Request) {
 		SendError(w, r, err)
 		return
 	}
-	if err := torrent_info.ResetAllMatchLabMappings(request.IncludeParsing); err != nil {
+	stats, err := torrent_info.ResetAllMatchLabMappingsWithStats(request.IncludeParsing)
+	if err != nil {
 		SendError(w, r, err)
 		return
 	}
-	SendData(w, r, 204, nil)
+	SendData(w, r, 200, stats)
 }
 
 func AddWorkerEndpoints(router *http.ServeMux) {
