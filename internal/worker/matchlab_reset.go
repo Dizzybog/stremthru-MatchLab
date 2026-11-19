@@ -27,6 +27,7 @@ type MatchLabResetStatus struct {
 	IncludeParsing bool      `json:"include_parsing"`
 	Torrents       int64     `json:"torrents"`
 	StreamFiles    int64     `json:"stream_files"`
+	FastReset      bool      `json:"fast_reset"`
 	UpdatedAt      time.Time `json:"updated_at,omitempty"`
 	Error          string    `json:"error,omitempty"`
 }
@@ -35,6 +36,7 @@ type matchLabResetData struct {
 	IncludeParsing bool  `json:"include_parsing"`
 	Torrents       int64 `json:"torrents"`
 	StreamFiles    int64 `json:"stream_files"`
+	FastReset      bool  `json:"fast_reset"`
 }
 
 var matchLabResetState struct {
@@ -63,6 +65,7 @@ func GetMatchLabResetStatus() (MatchLabResetStatus, error) {
 		status.IncludeParsing = job.Data.IncludeParsing
 		status.Torrents = job.Data.Torrents
 		status.StreamFiles = job.Data.StreamFiles
+		status.FastReset = job.Data.FastReset
 	}
 	if status.Status == "started" && time.Since(job.UpdatedAt) > 5*time.Minute {
 		status.Status = "interrupted"
@@ -148,6 +151,7 @@ func runMatchLabReset(id string, data matchLabResetData, lock db.AdvisoryLock) {
 
 	data.Torrents = stats.Torrents
 	data.StreamFiles = stats.StreamFiles
+	data.FastReset = stats.FastReset
 	status := "done"
 	errorMessage := ""
 	if resetErr != nil {
@@ -160,6 +164,6 @@ func runMatchLabReset(id string, data matchLabResetData, lock db.AdvisoryLock) {
 	if resetErr != nil {
 		matchLabResetLog.Error("MatchLab reset failed", "job", id, "error", resetErr)
 	} else {
-		matchLabResetLog.Info("MatchLab reset completed", "job", id, "torrents", stats.Torrents, "stream_files", stats.StreamFiles)
+		matchLabResetLog.Info("MatchLab reset completed", "job", id, "torrents", stats.Torrents, "stream_files", stats.StreamFiles, "fast_reset", stats.FastReset)
 	}
 }
