@@ -80,6 +80,20 @@ IMDb matching and AniDB / stream-file mapping through MatchLab. See
 [the integration guide](./docs/matchlab.md) for setup, episode rules,
 migration details and safety constraints.
 
+### Torznab feed scraping (fork)
+
+In **Dashboard → Torrent → Indexers**, enable **Scrape Feed (every 10 minutes)**
+for any generic Torznab or Jackett indexer. The setting is off by default and
+independent of the existing **Only Anime** search setting.
+
+When enabled, the background scheduler requests the indexer's latest results
+with `t=search`, an empty `q`, and a 100-item limit every 10 minutes.
+Only enabled indexers with **Scrape Feed** checked are contacted; configured
+indexer rate limits are respected. Results are deduplicated by the normal
+torrent upsert path and later parsed/matched by the existing workers,
+including MatchLab when configured. A feed that rejects empty searches is
+logged and skipped until its next scheduled run.
+
 Check [documentation](https://docs.stremthru.13377001.xyz/configuration).
 
 ### Stremio Addons

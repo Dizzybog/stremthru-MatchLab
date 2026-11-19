@@ -97,6 +97,10 @@ const columns: ColumnDef<TorznabIndexer>[] = [
     },
     header: "Rate Limit",
   }),
+  col.accessor("scrape_feed", {
+    cell: ({ getValue }) => (getValue() ? "Every 10 min" : "-"),
+    header: "Scrape Feed",
+  }),
   col.accessor("disabled", {
     cell: ({ getValue }) => {
       const disabled = getValue();
@@ -285,6 +289,7 @@ function TorznabIndexerFormSheet({
       api_key: "",
       name: editItem?.name ?? "",
       only_anime: editItem?.only_anime ?? false,
+      scrape_feed: editItem?.scrape_feed ?? false,
       rate_limit_config_id: editItem?.rate_limit_config_id ?? "",
       search_mode: editItem?.search_mode ?? "auto",
       type: editItem?.type ?? "jackett",
@@ -293,6 +298,7 @@ function TorznabIndexerFormSheet({
     [
       editItem?.name,
       editItem?.only_anime,
+      editItem?.scrape_feed,
       editItem?.rate_limit_config_id,
       editItem?.search_mode,
       editItem?.type,
@@ -309,6 +315,7 @@ function TorznabIndexerFormSheet({
           id: editItem.id,
           name: value.name,
           only_anime: value.only_anime,
+          scrape_feed: value.scrape_feed,
           rate_limit_config_id: value.rate_limit_config_id || null,
           search_mode: value.search_mode,
         });
@@ -318,6 +325,7 @@ function TorznabIndexerFormSheet({
           api_key: value.api_key,
           name: value.name,
           only_anime: value.only_anime,
+          scrape_feed: value.scrape_feed,
           rate_limit_config_id: value.rate_limit_config_id || null,
           search_mode: value.search_mode,
           type: value.type,
@@ -409,6 +417,9 @@ function TorznabIndexerFormSheet({
               </form.AppField>
               <form.AppField name="only_anime">
                 {(field) => <field.Checkbox label="Only Anime" />}
+              </form.AppField>
+              <form.AppField name="scrape_feed">
+                {(field) => <field.Checkbox label="Scrape Feed (every 10 minutes)" />}
               </form.AppField>
             </div>
           </ScrollArea>
