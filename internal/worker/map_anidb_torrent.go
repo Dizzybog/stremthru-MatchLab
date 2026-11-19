@@ -11,6 +11,7 @@ import (
 
 	"github.com/MunifTanjim/stremthru/internal/anidb"
 	"github.com/MunifTanjim/stremthru/internal/db"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/torrent_info"
 	"github.com/MunifTanjim/stremthru/internal/util"
 	"github.com/agnivade/levenshtein"
@@ -653,6 +654,9 @@ func prepareAniDBTorrentMaps(tvdbMaps *anidb.AniDBTVDBEpisodeMapsResult, titles 
 type MapAniDBErrorHandler func(message string, err error, args ...any)
 
 func MapTorrentToAniDB(hash string, tInfo torrent_info.TorrentInfo, onError MapAniDBErrorHandler) []anidb.AniDBTorrent {
+	if matchlab.Enabled() {
+		return nil
+	}
 	if !tInfo.IsParsed() {
 		return nil
 	}
