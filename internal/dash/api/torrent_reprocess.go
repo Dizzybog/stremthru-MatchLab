@@ -8,6 +8,7 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/anidb"
 	"github.com/MunifTanjim/stremthru/internal/imdb_torrent"
 	"github.com/MunifTanjim/stremthru/internal/logger"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/server"
 	"github.com/MunifTanjim/stremthru/internal/shared"
 	"github.com/MunifTanjim/stremthru/internal/torrent_info"
@@ -129,6 +130,24 @@ func handleReprocessTorrents(w http.ResponseWriter, r *http.Request) {
 	hashes := make([]string, 0, len(tInfoByHash))
 	for hash := range tInfoByHash {
 		hashes = append(hashes, hash)
+	}
+
+	if matchlab.Enabled() {
+		// MatchLab is authoritative for both IMDb and AniDB. The native
+		// MapTorrentToIMDB/MapTorrentToAniDB functions below must never run
+		// for these hashes: they can insert blank IMDb IDs while leaving old
+		// torrent_stream SID/ASID coordinates behind. Requeue parsing and
+		// matching together, then let the existing background workers handle
+		// the external API calls. Targets are inseparable in MatchLab mode.
+		if err := torrent_info.ResetMatchLabMappingsByHashes(hashes, true); err != nil {
+			SendError(w, r, err)
+			return
+		}
+		SendData(w, r, 200, ReprocessResponse{
+			Mode:   "async",
+			Queued: len(hashes),
+		})
+		return
 	}
 
 	tInfosToUpdate := make([]*torrent_info.TorrentInfo, 0, len(tInfoByHash))
