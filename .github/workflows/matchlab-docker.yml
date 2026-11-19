@@ -24,6 +24,20 @@ jobs:
   build:
     name: Verify and build amd64 + arm64
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: matchlab_reset_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d matchlab_reset_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +61,7 @@ jobs:
       - name: Go tests
         env:
           STREMTHRU_ENV: test
+          STREMTHRU_TEST_POSTGRES_RESET_DSN: postgres://postgres:test-only-password@127.0.0.1:5432/matchlab_reset_ci?sslmode=disable
         run: go test -tags 'sqlite_fts5,sqlite_stat4' ./internal/matchlab ./internal/torrent_info ./internal/torrent_stream ./internal/worker
 
       - name: Go vet
