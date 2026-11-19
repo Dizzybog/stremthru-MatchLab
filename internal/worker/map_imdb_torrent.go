@@ -20,7 +20,8 @@ type MapIMDBResult struct {
 }
 
 func MapTorrentToIMDB(hash string, tInfo torrent_info.TorrentInfo, onError MapIMDBErrorHandler) *MapIMDBResult {
-	if !tInfo.IsParsed() {
+	// Reprocess endpoints and any future callers must not bypass MatchLab.
+	if matchlab.Enabled() || !tInfo.IsParsed() {
 		return nil
 	}
 
