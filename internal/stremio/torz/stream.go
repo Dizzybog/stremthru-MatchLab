@@ -334,7 +334,7 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 		}
 		return parsed, err
 	}
-	tInfosToUpsert := []torrent_info.TorrentItem{
+	tInfosToUpsert := []torrent_info.TorrentItem{}
 	wrappedStreams := []WrappedStream{}
 	for i, items := range results {
 		is_exact := sQueries[i].is_exact
