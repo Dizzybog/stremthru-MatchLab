@@ -1821,6 +1821,51 @@ func ResetAllMatchLabMappings(includeParsing bool) error {
 	return nil
 }
 
+// ResetMatchLabMappingsByHashes requeues selected hashes for the external
+// parser/matcher. Both identity families must be reset together: MatchLab owns
+// IMDb, AniDB and the file-level coordinates as one atomic mapping result.
+// Revision bumps prevent an older in-flight MatchLab response from restoring
+// pre-reset identities. Only derived metadata is changed, never file records.
+func ResetMatchLabMappingsByHashes(hashes []string, includeParsing bool) error {
+	if len(hashes) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for chunk := range slices.Chunk(hashes, 200) {
+		cond, args := db.InStringValues(chunk)
+		query := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
+			"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
+		if includeParsing {
+			query += ", parser_version = 0, parser_input = '', parsed_at = NULL"
+		}
+		if _, err = tx.Exec(query+" WHERE hash "+cond, args...); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("DELETE FROM imdb_torrent WHERE hash "+cond, args...); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("DELETE FROM anidb_torrent WHERE hash "+cond, args...); err != nil {
+			return err
+		}
+		if _, err = tx.Exec("UPDATE torrent_stream SET sid = '*', asid = '' WHERE h "+cond+
+			" AND (sid != '*' OR asid != '')", args...); err != nil {
+			return err
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	for _, hash := range hashes {
+		ts.InvalidateFilesByHash(hash)
+	}
+	return nil
+}
+
 // ResetMatchLabIdentitiesForNativeMatching clears identity data only for
 // hashes that are about to be reparsed by Go-PTT after disconnecting MatchLab.
 // Parse metadata and identity mappings are intentionally separate: a locally
