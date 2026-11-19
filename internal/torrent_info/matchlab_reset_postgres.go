@@ -36,7 +36,7 @@ func postgresResetColumns(tx *db.Tx, table string, columnNames []string, alterSQ
 	}
 	quoted := make([]string, 0, len(columnNames))
 	for _, name := range columnNames {
-		quoted = append(quoted, "'" + name + "'")
+		quoted = append(quoted, "'"+name+"'")
 	}
 
 	// pg_depend catches plain index keys, INCLUDE columns, expression indexes
@@ -55,7 +55,7 @@ func postgresResetColumns(tx *db.Tx, table string, columnNames []string, alterSQ
 		 AND a.attnum = d.refobjsubid
 		LEFT JOIN pg_constraint AS c ON c.conindid = i.indexrelid
 		WHERE i.indrelid = ?::regclass
-		  AND a.attname IN (` + strings.Join(quoted, ", ") + `)
+		  AND a.attname IN (`+strings.Join(quoted, ", ")+`)
 		ORDER BY 1`, table)
 	if err != nil {
 		return fmt.Errorf("inspect %s indexes: %w", table, err)
