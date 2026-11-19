@@ -67,7 +67,7 @@ When MatchLab is configured, open **Dashboard → Workers → Map IMDb/AniDB via
 
 The optional **Also reset parsing** checkbox additionally clears `parser_input`, `parser_version` and `parsed_at`, so the parse worker will run `/parse` again before the mapping worker executes `/match`. If unchecked, only identity matching is rebuilt. No immediate background job is started from the HTTP request: the normal workers process the backlog on their next scheduled runs. Large databases may take some time to reset and their torrent results can be temporarily incomplete.
 
-The authenticated API is `POST /dash/api/workers/map-imdb-torrent/matchlab/reset` with JSON `{"include_parsing":true}` (or `false`). The endpoint is unavailable when MatchLab is disabled. Reset is global, including all existing mappings, so perform a database backup first if you might need to restore older results.
+The authenticated API is `POST /dash/api/workers/map-imdb-torrent/matchlab/reset` with JSON `{"include_parsing":true}` (or `false`). Successful requests return counts of processed torrent rows (`torrents`) and file SID/ASID assignments actually cleared (`stream_files`). The dashboard displays these counts rather than claiming success without confirming the database write. The endpoint is unavailable when MatchLab is disabled. Reset is global, including all existing mappings, so perform a database backup first if you might need to restore older results.
 
 ## Validation
 
