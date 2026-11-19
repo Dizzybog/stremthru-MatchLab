@@ -163,4 +163,3 @@ func runMatchLabReset(id string, data matchLabResetData, lock db.AdvisoryLock) {
 		matchLabResetLog.Info("MatchLab reset completed", "job", id, "torrents", stats.Torrents, "stream_files", stats.StreamFiles)
 	}
 }
-
