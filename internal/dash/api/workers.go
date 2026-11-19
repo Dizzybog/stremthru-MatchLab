@@ -13,7 +13,9 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/imdb_title"
 	"github.com/MunifTanjim/stremthru/internal/job"
 	"github.com/MunifTanjim/stremthru/internal/job_log"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/shared"
+	"github.com/MunifTanjim/stremthru/internal/torrent_info"
 	"github.com/MunifTanjim/stremthru/internal/util"
 	"github.com/MunifTanjim/stremthru/internal/worker"
 )
@@ -307,6 +309,30 @@ func handleWorkerProgress(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Only the active MatchLab worker exposes the global reset action.
+func handleResetMatchLabWorker(w http.ResponseWriter, r *http.Request) {
+	if !shared.IsMethod(r, http.MethodPost) {
+		ErrorMethodNotAllowed(r).Send(w, r)
+		return
+	}
+	if r.PathValue("id") != "map-imdb-torrent" || !matchlab.Enabled() {
+		ErrorBadRequest(r).WithMessage("MatchLab worker is not enabled").Send(w, r)
+		return
+	}
+	var request struct {
+		IncludeParsing bool `json:"include_parsing"`
+	}
+	if err := ReadRequestBodyJSON(r, &request); err != nil {
+		SendError(w, r, err)
+		return
+	}
+	if err := torrent_info.ResetAllMatchLabMappings(request.IncludeParsing); err != nil {
+		SendError(w, r, err)
+		return
+	}
+	SendData(w, r, 204, nil)
+}
+
 func AddWorkerEndpoints(router *http.ServeMux) {
 	authed := EnsureAuthed
 
@@ -315,4 +341,5 @@ func AddWorkerEndpoints(router *http.ServeMux) {
 	router.HandleFunc("/workers/{id}/job-logs/{jobId}", authed(handleWorkerJobLog))
 	router.HandleFunc("/workers/{id}/temporary-files", authed(handleWorkerTemporaryFiles))
 	router.HandleFunc("/workers/{id}/progress", authed(handleWorkerProgress))
+	router.HandleFunc("/workers/{id}/matchlab/reset", authed(handleResetMatchLabWorker))
 }
