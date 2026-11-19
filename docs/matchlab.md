@@ -57,6 +57,14 @@ WHERE matchlab_mapped_at IS NULL
 - **Unmatched titles:** a successfully completed pass with no verified IMDb or AniDB ID leaves `matchlab_mapped_at` empty and schedules a retry after seven days. This allows newly learned MatchLab rules to improve previously unmatched titles without continuously retrying during normal backlog processing. Previously completed no-match rows created by older versions may require manual reset to join this schedule.
 - **Bitmagnet:** when MatchLab is enabled, Bitmagnet ingestion does not wait for local IMDb metadata synchronization. The local sync prerequisite remains in native matching mode.
 
+## Reset mappings from the dashboard
+
+When MatchLab is configured, open **Dashboard → Workers → Map IMDb/AniDB via MatchLab** and select **Reset MatchLab Mapping**. Confirming clears all derived `imdb_torrent` and `anidb_torrent` mappings, clears stored `torrent_stream.sid/asid` values, and sets `torrent_info.matchlab_mapped_at` and retry markers back to pending. File paths, video metadata, hashes and the torrent catalogue are preserved. In-flight MatchLab mapping commits are fenced by incrementing `matchlab_file_revision` for every torrent. The file-list cache is invalidated on the instance performing the reset.
+
+The optional **Also reset parsing** checkbox additionally clears `parser_input`, `parser_version` and `parsed_at`, so the parse worker will run `/parse` again before the mapping worker executes `/match`. If unchecked, only identity matching is rebuilt. No immediate background job is started from the HTTP request: the normal workers process the backlog on their next scheduled runs. Large databases may take some time to reset and their torrent results can be temporarily incomplete.
+
+The authenticated API is `POST /dash/api/workers/map-imdb-torrent/matchlab/reset` with JSON `{"include_parsing":true}` (or `false`). The endpoint is unavailable when MatchLab is disabled. Reset is global, including all existing mappings, so perform a database backup first if you might need to restore older results.
+
 ## Validation
 
 The unit tests cover HTTP response validation, failures and malformed configurations, single-/multi-season metadata, mixed anime IDs, exact anime crosswalk segments, and combined file paths. Run from the project root:
