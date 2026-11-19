@@ -535,6 +535,10 @@ func matchlabVerifiedSegments(ctx context.Context, title string, r matchlab.Resp
 // Store changes in one transaction. A stale old IMDb/AniDB mapping must not
 // survive a new authoritative MatchLab pass, and a failed HTTP request must
 // never create a false no-match.
+func matchlabMappingNeedsRetry(m matchLabMapping) bool {
+	return len(m.IMDbIDs) == 0 && len(m.AniDB) == 0
+}
+
 func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevision int64) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -546,7 +550,7 @@ func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevi
 	episodes := intsCSV(m.Episodes)
 	mappedAt := db.CurrentTimestamp
 	var retryAt any
-	if len(m.IMDbIDs) == 0 && len(m.AniDB) == 0 {
+	if matchlabMappingNeedsRetry(m) {
 		// A successful no-match is not final: let improved MatchLab rules
 		// discover this title on a later pass without hot-looping the queue.
 		mappedAt = "NULL"
