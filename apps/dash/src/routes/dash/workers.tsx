@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ColumnDef } from "@tanstack/react-table";
 import { Trash2 } from "lucide-react";
 import { DateTime, Duration } from "luxon";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocalStorage } from "react-use";
 import { toast } from "sonner";
 
@@ -27,6 +27,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Item,
   ItemContent,
@@ -306,6 +307,74 @@ function ResetWorkerProgressButton({
   );
 }
 
+function ResetMatchLabButton({
+  mutation,
+  enabled,
+}: {
+  mutation: ReturnType<typeof useWorkerMutation>["resetMatchLab"];
+  enabled: boolean;
+}) {
+  const [includeParsing, setIncludeParsing] = useState(false);
+  if (!enabled) {
+    return null;
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button disabled={mutation.isPending} size="sm" variant="destructive">
+          Reset MatchLab Mapping
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Reset all MatchLab mappings?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will clear IMDb/AniDB torrent mappings and file SID/ASID values
+            for every stored torrent. Torrent hashes, files, and metadata are
+            preserved. Results may temporarily disappear while background workers
+            rebuild the mappings.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex items-start gap-3">
+          <Checkbox
+            checked={includeParsing}
+            id="matchlab-reset-parsing"
+            onCheckedChange={(checked) => setIncludeParsing(checked === true)}
+          />
+          <Label htmlFor="matchlab-reset-parsing">
+            Also reset parsing (reparse all torrent titles before rematching)
+          </Label>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction asChild>
+            <Button
+              disabled={mutation.isPending}
+              onClick={() => {
+                toast.promise(mutation.mutateAsync(includeParsing), {
+                  error(err: APIError) {
+                    console.error(err);
+                    return { closeButton: true, message: err.message };
+                  },
+                  loading: "Resetting MatchLab data...",
+                  success: {
+                    closeButton: true,
+                    message: "MatchLab data reset. Background workers will rebuild it.",
+                  },
+                });
+              }}
+              variant="destructive"
+            >
+              Reset all
+            </Button>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export const Route = createFileRoute("/dash/workers")({
   component: RouteComponent,
   staticData: {
@@ -322,7 +391,7 @@ function RouteComponent() {
   );
 
   const jobLogs = useWorkerJobLogs(selectedWorkerId);
-  const { deleteJobLog, purgeJobLogs, purgeTemporaryFiles, resetProgress } =
+  const { deleteJobLog, purgeJobLogs, purgeTemporaryFiles, resetProgress, resetMatchLab } =
     useWorkerMutation(selectedWorkerId);
 
   const workerOptions = useMemo(() => {
@@ -412,6 +481,11 @@ function RouteComponent() {
             <ResetWorkerProgressButton
               mutation={resetProgress}
               workerId={selectedWorkerId}
+            />
+            <ResetMatchLabButton
+              enabled={selectedWorkerId === "map-imdb-torrent" &&
+                workerDetails.data?.[selectedWorkerId]?.title === "Map IMDb/AniDB via MatchLab"}
+              mutation={resetMatchLab}
             />
             <AlertDialog>
               <AlertDialogTrigger asChild>

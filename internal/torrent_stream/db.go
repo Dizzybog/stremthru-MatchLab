@@ -223,7 +223,7 @@ func cleanupFilesWithNameAsPath(hash string, files Files) {
 			continue
 		}
 
-		if f.SId != "" && f.SId != "*" {
+		if !config.Integration.MatchLab.IsEnabled() && f.SId != "" && f.SId != "*" {
 			if _, err := db.Exec(
 				fmt.Sprintf(
 					`UPDATE %s SET %s = ? WHERE %s = ? AND %s LIKE '%%/%s' AND %s IN ('','*')`,
@@ -242,7 +242,7 @@ func cleanupFilesWithNameAsPath(hash string, files Files) {
 			}
 		}
 
-		if f.ASId != "" {
+		if !config.Integration.MatchLab.IsEnabled() && f.ASId != "" {
 			if _, err := db.Exec(
 				fmt.Sprintf(
 					`UPDATE %s SET %s = ? WHERE %s = ? AND %s LIKE '%%/%s' AND %s = ''`,
@@ -266,7 +266,7 @@ func cleanupFilesWithNameAsPath(hash string, files Files) {
 		log.Error("failed to cleanup files with name as path", "error", err, "hash", hash)
 	} else {
 		log.Debug("cleaned up files with name as path", "hash", hash)
-		filesByHashCache.Remove(hash)
+		filesByHashCache.Remove(filesByHashCacheKey(hash))
 	}
 }
 
@@ -349,7 +349,17 @@ func GetFile(hash string, sid string) (*File, error) {
 
 // InvalidateFilesByHash prevents stale SID/ASID data after an external
 // mapper updates torrent_stream directly in an atomic database transaction.
-func InvalidateFilesByHash(hash string) { filesByHashCache.Remove(hash) }
+func InvalidateFilesByHash(hash string) { filesByHashCache.Remove(filesByHashCacheKey(hash)) }
+
+// Change the cache keyspace after a bulk identity reset instead of scanning
+// potentially hundreds of thousands of cached torrent file lists.
+var filesByHashCacheGeneration atomic.Uint64
+
+func filesByHashCacheKey(hash string) string {
+	return strconv.FormatUint(filesByHashCacheGeneration.Load(), 10) + ":" + hash
+}
+
+func InvalidateAllFiles() { filesByHashCacheGeneration.Add(1) }
 
 var filesByHashCache = cache.NewCache[Files](&cache.CacheConfig{
 	Name:     "torrent_stream:files_by_hash",
@@ -374,7 +384,7 @@ func GetFilesByHashes(hashes []string) (map[string]Files, error) {
 	var missedHashes []string
 	for _, hash := range hashes {
 		var cached Files
-		if filesByHashCache.Get(hash, &cached) {
+		if filesByHashCache.Get(filesByHashCacheKey(hash), &cached) {
 			readCacheHitCount.Add(1)
 			byHash[hash] = cached
 		} else {
@@ -402,7 +412,7 @@ func GetFilesByHashes(hashes []string) (map[string]Files, error) {
 		if err := rows.Scan(&hash, &files); err != nil {
 			return nil, err
 		}
-		filesByHashCache.Add(hash, files)
+		filesByHashCache.Add(filesByHashCacheKey(hash), files)
 		byHash[hash] = files
 	}
 
@@ -510,6 +520,16 @@ func TrackFiles(storeCode store.StoreCode, filesByHash map[string]Files) {
 type InsertData struct {
 	Hash string
 	File
+}
+
+// Imported file identities may come from an indexer, a debrid provider or
+// another Stremio addon. Only the MatchLab mapping transaction may own these
+// columns while the external matcher is configured.
+func normalizeImportedStreamIdentity(item *InsertData, matchLabEnabled bool) {
+	if matchLabEnabled {
+		item.SId = ""
+		item.ASId = ""
+	}
 }
 
 var record_streams_query_before_values = fmt.Sprintf(
@@ -637,6 +657,7 @@ func Record(items []InsertData, discardIdx bool) error {
 		args := make([]any, 0, count*9)
 		for i := range cItems {
 			item := &cItems[i]
+			normalizeImportedStreamIdentity(item, config.Integration.MatchLab.IsEnabled())
 			if !strings.HasPrefix(item.Path, "/") {
 				continue
 			}
@@ -698,7 +719,7 @@ func Record(items []InsertData, discardIdx bool) error {
 				prevRecordCache.Add(key, data)
 				hash, _, _ := strings.Cut(key, ":")
 				if !invalidatedHashes.Has(hash) {
-					filesByHashCache.Remove(hash)
+					filesByHashCache.Remove(filesByHashCacheKey(hash))
 					invalidatedHashes.Add(hash)
 				}
 			}
@@ -750,7 +771,7 @@ var query_set_media_info = fmt.Sprintf(
 func SetMediaInfo(hash, path string, mediaInfo *media_info.MediaInfo) error {
 	_, err := db.Exec(query_set_media_info, JSONBMediaInfo(mediaInfo), hash, path)
 	if err == nil {
-		filesByHashCache.Remove(hash)
+		filesByHashCache.Remove(filesByHashCacheKey(hash))
 	}
 	return err
 }
@@ -782,7 +803,7 @@ func TagStremId(hash string, filepath string, sid string) {
 		log.Error("failed to tag strem id", "error", err, "hash", hash, "fpath", filepath, "sid", sid)
 	} else {
 		log.Debug("tagged strem id", "hash", hash, "fpath", filepath, "sid", sid)
-		filesByHashCache.Remove(hash)
+		filesByHashCache.Remove(filesByHashCacheKey(hash))
 	}
 }
 
@@ -828,7 +849,7 @@ func TagAnimeStremId(hash string, filepath string, sid string) {
 		log.Error("failed to tag anime strem id", "error", err, "hash", hash, "fpath", filepath, "asid", asid, "strem_id", sid)
 	} else {
 		log.Debug("tagged anime strem id", "hash", hash, "fpath", filepath, "asid", asid, "strem_id", sid)
-		filesByHashCache.Remove(hash)
+		filesByHashCache.Remove(filesByHashCacheKey(hash))
 	}
 }
 

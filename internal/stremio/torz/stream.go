@@ -11,11 +11,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MunifTanjim/go-ptt"
 	"github.com/MunifTanjim/stremthru/core"
 	"github.com/MunifTanjim/stremthru/internal/anidb"
 	"github.com/MunifTanjim/stremthru/internal/buddy"
 	"github.com/MunifTanjim/stremthru/internal/config"
 	"github.com/MunifTanjim/stremthru/internal/imdb_title"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/shared"
 	stremio_shared "github.com/MunifTanjim/stremthru/internal/stremio/shared"
 	stremio_transformer "github.com/MunifTanjim/stremthru/internal/stremio/transformer"
@@ -313,6 +315,25 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 	}
 
 	strn := util.NewStringNormalizer()
+	// Do not let the native parser reject an indexer result that MatchLab
+	// would recognize. Cache repeated titles within this request.
+	parsedTitles := make(map[string]*ptt.Result)
+	parseIndexerTitle := func(title string) (*ptt.Result, error) {
+		if parsed, ok := parsedTitles[title]; ok {
+			return parsed, nil
+		}
+		var parsed *ptt.Result
+		var err error
+		if matchlab.Enabled() {
+			parsed, err = matchlab.Default.Parse(reqCtx, title)
+		} else {
+			parsed, err = util.ParseTorrentTitle(title)
+		}
+		if err == nil {
+			parsedTitles[title] = parsed
+		}
+		return parsed, err
+	}
 	tInfosToUpsert := []torrent_info.TorrentItem{}
 	wrappedStreams := []WrappedStream{}
 	for i, items := range results {
@@ -327,7 +348,7 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 			}
 
 			if !is_exact {
-				pttr, err := util.ParseTorrentTitle(item.Title)
+				pttr, err := parseIndexerTitle(item.Title)
 				if err != nil {
 					continue
 				}
@@ -454,7 +475,7 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 			}
 			tInfosToUpsert = append(tInfosToUpsert, tInfo)
 
-			pttr, err := util.ParseTorrentTitle(tInfo.TorrentTitle)
+			pttr, err := parseIndexerTitle(tInfo.TorrentTitle)
 			if err != nil {
 				return nil, nil, err
 			}

@@ -1775,6 +1775,52 @@ func ExistsByHash(hashes []string) (map[string]bool, error) {
 	return exists, nil
 }
 
+// ResetAllMatchLabMappings clears all derived identity assignments and
+// schedules every torrent for a fresh MatchLab pass. The hash/file records
+// themselves remain intact. Incrementing revisions fences off any in-flight
+// mapping responses computed before this reset.
+// When includeParsing is true the parser version and input are also reset,
+// making the existing parse worker reparse all titles before remapping.
+func ResetAllMatchLabMappings(includeParsing bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	reset := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
+		"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
+	if includeParsing {
+		reset += ", parser_version = 0, parser_input = '', parsed_at = NULL"
+	}
+	if _, err = tx.Exec(reset); err != nil {
+		return err
+	}
+
+	// The two mapping tables hold derived data only; they have no foreign keys.
+	// TRUNCATE avoids generating millions of DELETE row versions on PostgreSQL.
+	if db.Dialect == db.DBDialectPostgres {
+		_, err = tx.Exec("TRUNCATE TABLE imdb_torrent, anidb_torrent")
+	} else {
+		_, err = tx.Exec("DELETE FROM imdb_torrent")
+		if err == nil {
+			_, err = tx.Exec("DELETE FROM anidb_torrent")
+		}
+	}
+	if err != nil {
+		return err
+	}
+	// Preserve file paths, sizes, indices, hashes and media info.
+	if _, err = tx.Exec("UPDATE torrent_stream SET sid = '*', asid = '' WHERE sid != '*' OR asid != ''"); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	ts.InvalidateAllFiles()
+	return nil
+}
+
 // ResetMatchLabIdentitiesForNativeMatching clears identity data only for
 // hashes that are about to be reparsed by Go-PTT after disconnecting MatchLab.
 // Parse metadata and identity mappings are intentionally separate: a locally

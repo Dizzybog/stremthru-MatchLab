@@ -12,6 +12,7 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/config"
 	"github.com/MunifTanjim/stremthru/internal/db"
 	"github.com/MunifTanjim/stremthru/internal/kv"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/torrent_info"
 	ts "github.com/MunifTanjim/stremthru/internal/torrent_stream"
 	"github.com/MunifTanjim/stremthru/internal/util"
@@ -39,7 +40,7 @@ func InitSyncBitmagnetWorker(conf *WorkerConfig) *Worker {
 	conf.Executor = func(w *Worker) error {
 		log := w.Log
 
-		if !isIMDBSyncedInLast24Hours() {
+		if !matchlab.Enabled() && !isIMDBSyncedInLast24Hours() {
 			log.Info("IMDB not synced yet today, skipping")
 			return nil
 		}

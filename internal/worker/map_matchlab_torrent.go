@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -438,6 +439,21 @@ func buildMatchLabMapping(torrent torrent_info.TorrentInfo, whole matchlab.Respo
 	return result
 }
 
+// Bitmagnet accepts DVD and disc-image releases as playable content.
+// Keep these eligible for title matching without globally treating ISO files
+// as ordinary videos in other stream handlers.
+func matchlabEligibleFile(file torrent_stream.File) bool {
+	file.Normalize()
+	if file.IsVideo() {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(file.Name)) {
+	case ".vob", ".iso":
+		return true
+	}
+	return false
+}
+
 func matchlabFilePath(torrentTitle string, file torrent_stream.File) string {
 	// A complete path lets MatchLab inherit title from a parent folder while
 	// letting the leaf's episode coordinate win over a pack-level season.
@@ -519,6 +535,10 @@ func matchlabVerifiedSegments(ctx context.Context, title string, r matchlab.Resp
 // Store changes in one transaction. A stale old IMDb/AniDB mapping must not
 // survive a new authoritative MatchLab pass, and a failed HTTP request must
 // never create a false no-match.
+func matchlabMappingNeedsRetry(m matchLabMapping) bool {
+	return len(m.IMDbIDs) == 0 && len(m.AniDB) == 0
+}
+
 func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevision int64) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -528,11 +548,19 @@ func saveMatchLabMapping(t torrent_info.TorrentInfo, m matchLabMapping, fileRevi
 
 	seasons := intsCSV(m.Seasons)
 	episodes := intsCSV(m.Episodes)
+	mappedAt := db.CurrentTimestamp
+	var retryAt any
+	if matchlabMappingNeedsRetry(m) {
+		// A successful no-match is not final: let improved MatchLab rules
+		// discover this title on a later pass without hot-looping the queue.
+		mappedAt = "NULL"
+		retryAt = db.Timestamp{Time: time.Now().Add(7 * 24 * time.Hour)}
+	}
 	res, err := tx.Exec(
-		"UPDATE torrent_info SET seasons = ?, episodes = ?, category = ?, matchlab_mapped_at = "+db.CurrentTimestamp+", matchlab_retry_at = NULL, updated_at = "+db.CurrentTimestamp+
+		"UPDATE torrent_info SET seasons = ?, episodes = ?, category = ?, matchlab_mapped_at = "+mappedAt+", matchlab_retry_at = ?, updated_at = "+db.CurrentTimestamp+
 			" WHERE hash = ? AND t_title = ? AND parser_input = ? AND matchlab_mapped_at IS NULL"+
 			" AND parser_version = ? AND matchlab_file_revision = ?",
-		seasons, episodes, m.Category, t.Hash, t.TorrentTitle, t.TorrentTitle, matchlab.ParserVersion, fileRevision,
+		seasons, episodes, m.Category, retryAt, t.Hash, t.TorrentTitle, t.TorrentTitle, matchlab.ParserVersion, fileRevision,
 	)
 	if err != nil {
 		return err
@@ -605,7 +633,7 @@ func doMatchLabTorrent(ctx context.Context, t torrent_info.TorrentInfo, files to
 	animeIDs := map[string]struct{}{}
 	for _, f := range files {
 		f.Normalize()
-		if !f.IsVideo() || f.Path == "" {
+		if !matchlabEligibleFile(f) || f.Path == "" {
 			continue
 		}
 		r, resolvedTitle, err := matchlabBestFileResult(ctx, t.TorrentTitle, f, whole)
