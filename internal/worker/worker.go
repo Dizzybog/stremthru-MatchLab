@@ -201,6 +201,9 @@ func NewWorker(conf *WorkerConfig) *Worker {
 				worker.onEnd()
 			}()
 
+			// Avoid starting new scheduled work while the reset is running.
+			// Active workers pause at their database writes/checkpoints.
+			db.WaitForMaintenance()
 			if worker.shouldSkip != nil && worker.shouldSkip() {
 				log.Trace("skipping")
 				return nil
