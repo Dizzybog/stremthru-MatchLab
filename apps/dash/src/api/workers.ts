@@ -28,6 +28,31 @@ export type WorkerTemporaryFile = {
   size: string;
 };
 
+export type MatchLabResetStatus = {
+  id?: string;
+  status: "idle" | "started" | "done" | "failed" | "interrupted";
+  include_parsing: boolean;
+  torrents: number;
+  stream_files: number;
+  updated_at?: string;
+  error?: string;
+};
+
+export function useMatchLabResetStatus(workerId: string) {
+  return useQuery({
+    enabled: workerId === "map-imdb-torrent",
+    queryFn: async () => {
+      const { data } = await api<MatchLabResetStatus>(
+        `/workers/${workerId}/matchlab/reset`,
+      );
+      return data;
+    },
+    queryKey: ["/workers/{id}/matchlab/reset", workerId],
+    refetchInterval: (query) =>
+      query.state.data?.status === "started" ? 2000 : false,
+  });
+}
+
 export function useWorkerDetails() {
   return useQuery({
     queryFn: getWorkerDetails,
@@ -92,7 +117,7 @@ export function useWorkerMutation(workerId: string) {
 
   const resetMatchLab = useMutation({
     mutationFn: async (includeParsing: boolean) => {
-      const { data } = await api<{ torrents: number; stream_files: number }>(
+      const { data } = await api<MatchLabResetStatus>(
         `/workers/${workerId}/matchlab/reset`,
         {
           method: "POST",
@@ -102,7 +127,9 @@ export function useWorkerMutation(workerId: string) {
       return data;
     },
     onSuccess: async (_, __, ___, ctx) => {
-      await ctx.client.invalidateQueries({ queryKey: ["/workers/{id}/job-logs", workerId] });
+      await ctx.client.invalidateQueries({
+        queryKey: ["/workers/{id}/matchlab/reset", workerId],
+      });
     },
   });
 
