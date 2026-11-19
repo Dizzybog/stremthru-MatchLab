@@ -25,8 +25,8 @@ const (
 // a particular title. Keep q present but empty for indexers that expect it.
 func feedScrapeQuery() url.Values {
 	return url.Values{
-		"t": {"search"},
-		"q": {""},
+		"t":     {"search"},
+		"q":     {""},
 		"limit": {"100"},
 	}
 }
