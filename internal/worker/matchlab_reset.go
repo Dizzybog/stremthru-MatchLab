@@ -26,7 +26,6 @@ type MatchLabResetStatus struct {
 	Status         string    `json:"status"`
 	IncludeParsing bool      `json:"include_parsing"`
 	Torrents       int64     `json:"torrents"`
-	StreamFiles    int64     `json:"stream_files"`
 	UpdatedAt      time.Time `json:"updated_at,omitempty"`
 	Error          string    `json:"error,omitempty"`
 }
@@ -34,7 +33,6 @@ type MatchLabResetStatus struct {
 type matchLabResetData struct {
 	IncludeParsing bool  `json:"include_parsing"`
 	Torrents       int64 `json:"torrents"`
-	StreamFiles    int64 `json:"stream_files"`
 }
 
 var matchLabResetState struct {
@@ -62,7 +60,6 @@ func GetMatchLabResetStatus() (MatchLabResetStatus, error) {
 	if job.Data != nil {
 		status.IncludeParsing = job.Data.IncludeParsing
 		status.Torrents = job.Data.Torrents
-		status.StreamFiles = job.Data.StreamFiles
 	}
 	if status.Status == "started" && time.Since(job.UpdatedAt) > 5*time.Minute {
 		status.Status = "interrupted"
@@ -71,7 +68,7 @@ func GetMatchLabResetStatus() (MatchLabResetStatus, error) {
 	return status, nil
 }
 
-// StartMatchLabReset schedules a long database transaction without tying it to
+// StartMatchLabReset schedules the database update without tying it to
 // an HTTP request or proxy timeout. The advisory lock serializes resets across
 // StremThru replicas; the in-process guard also covers SQLite.
 func StartMatchLabReset(includeParsing bool) (MatchLabResetStatus, error) {
@@ -147,7 +144,6 @@ func runMatchLabReset(id string, data matchLabResetData, lock db.AdvisoryLock) {
 	heartbeat.Wait()
 
 	data.Torrents = stats.Torrents
-	data.StreamFiles = stats.StreamFiles
 	status := "done"
 	errorMessage := ""
 	if resetErr != nil {
@@ -160,6 +156,6 @@ func runMatchLabReset(id string, data matchLabResetData, lock db.AdvisoryLock) {
 	if resetErr != nil {
 		matchLabResetLog.Error("MatchLab reset failed", "job", id, "error", resetErr)
 	} else {
-		matchLabResetLog.Info("MatchLab reset completed", "job", id, "torrents", stats.Torrents, "stream_files", stats.StreamFiles)
+		matchLabResetLog.Info("MatchLab reset completed", "job", id, "torrents", stats.Torrents)
 	}
 }

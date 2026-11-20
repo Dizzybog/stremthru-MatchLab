@@ -80,6 +80,13 @@ IMDb matching and AniDB / stream-file mapping through MatchLab. See
 [the integration guide](./docs/matchlab.md) for setup, episode rules,
 migration details and safety constraints.
 
+The dashboard's **Reset MatchLab Mapping** action only resets MatchLab's
+processing marker, retry timestamps and revision for every torrent. The optional
+**Also reset parsing** checkbox additionally clears parser state. It does not
+truncate IMDb/AniDB tables or rewrite `torrent_stream`. Existing identities
+remain visible until MatchLab remaps each torrent; the revision prevents an
+in-flight old result from overwriting the newly queued state.
+
 ### Torznab feed scraping (fork)
 
 In **Dashboard → Torrent → Indexers**, enable **Scrape Feed (every 10 minutes)**
@@ -93,6 +100,13 @@ indexer rate limits are respected. Results are deduplicated by the normal
 torrent upsert path and later parsed/matched by the existing workers,
 including MatchLab when configured. A feed that rejects empty searches is
 logged and skipped until its next scheduled run.
+
+Logs now include an INFO summary for each 10-minute cycle and each opted-in
+indexer (duration, returned items, valid candidates, rejected items, and magnet
+resolution attempts/failures). DEBUG logs provide request/search and upsert
+timings. Rate-limit skips and failures are recorded with indexer ID and name.
+The `eligible` count is the number submitted to upsert, **not** the number of
+new torrents, because existing hashes are deduplicated.
 
 Check [documentation](https://docs.stremthru.13377001.xyz/configuration).
 

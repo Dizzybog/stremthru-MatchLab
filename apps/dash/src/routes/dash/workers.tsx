@@ -341,10 +341,10 @@ function ResetMatchLabButton({
           <AlertDialogHeader>
             <AlertDialogTitle>Reset all MatchLab mappings?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will clear IMDb/AniDB torrent mappings and file SID/ASID values
-              for every stored torrent. Torrent hashes, files, and metadata are
-              preserved. The operation runs in the background and its status
-              will be shown here.
+              This only resets MatchLab processing status for stored torrents.
+              Existing IMDb/AniDB mappings and stream-file SID/ASID values stay
+              in place until the normal MatchLab worker replaces them. The
+              operation runs in the background and its status is shown here.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="flex items-start gap-3">
@@ -390,8 +390,7 @@ function ResetMatchLabButton({
       )}
       {status?.status === "done" && (
         <span className="text-muted-foreground text-xs">
-          Last reset completed: {status.torrents.toLocaleString()} torrents,{" "}
-          {status.stream_files.toLocaleString()} file identities cleared.
+          Last reset completed: {status.torrents.toLocaleString()} torrents queued for rematching.
         </span>
       )}
       {(status?.status === "failed" || status?.status === "interrupted") && (

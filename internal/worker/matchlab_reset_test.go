@@ -27,7 +27,7 @@ func TestMatchLabResetRunsOutsideRequestAndPersistsStatus(t *testing.T) {
 	matchLabResetExecute = func(includeParsing bool) (torrent_info.MatchLabResetStats, error) {
 		<-unblock
 		if includeParsing {
-			return torrent_info.MatchLabResetStats{Torrents: 17, StreamFiles: 42}, nil
+			return torrent_info.MatchLabResetStats{Torrents: 17}, nil
 		}
 		return torrent_info.MatchLabResetStats{}, nil
 	}
@@ -51,7 +51,7 @@ func TestMatchLabResetRunsOutsideRequestAndPersistsStatus(t *testing.T) {
 	require.Eventually(t, func() bool {
 		s, err := GetMatchLabResetStatus()
 		return err == nil && s.Status == "done" &&
-			s.Torrents == 17 && s.StreamFiles == 42 && s.IncludeParsing
+			s.Torrents == 17 && s.IncludeParsing
 	}, 5*time.Second, 20*time.Millisecond)
 
 	require.Eventually(t, func() bool {

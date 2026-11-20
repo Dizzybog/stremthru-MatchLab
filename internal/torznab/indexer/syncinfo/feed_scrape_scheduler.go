@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/MunifTanjim/stremthru/internal/db"
@@ -31,6 +32,16 @@ func feedScrapeQuery() url.Values {
 	}
 }
 
+type feedScrapeResult struct {
+	status         string
+	fetched        int
+	eligible       int
+	rejected       int
+	magnetAttempts int
+	magnetFailures int
+	duration       time.Duration
+}
+
 // This is deliberately separate from the on-demand, SID-based indexer sync.
 // Only explicitly opted-in, enabled indexers are polled.
 var _ = job.NewScheduler(&job.SchedulerConfig[struct{}]{
@@ -44,103 +55,169 @@ var _ = job.NewScheduler(&job.SchedulerConfig[struct{}]{
 		return !torznab_indexer.Exists()
 	},
 	Executor: func(j *job.Scheduler[struct{}]) error {
+		started := time.Now()
+		log := j.Logger()
 		// Do not begin an ingestion batch while a MatchLab reset is active.
 		db.WaitForMaintenance()
 
 		indexers, err := torznab_indexer.GetAllEnabled()
 		if err != nil {
+			log.Error("failed to list enabled feed indexers", "error", err)
 			return err
 		}
-
-		pool := pond.NewPool(3)
+		var optedIn []*torznab_indexer.TorznabIndexer
 		for i := range indexers {
-			indexer := &indexers[i]
-			if !indexer.ScrapeFeed {
-				continue
+			if indexers[i].ScrapeFeed {
+				optedIn = append(optedIn, &indexers[i])
 			}
+		}
+		if len(optedIn) == 0 {
+			log.Debug("no indexers configured for feed scraping", "enabled_indexers", len(indexers))
+			return nil
+		}
+
+		log.Info("torznab feed scrape cycle started",
+			"indexers", len(optedIn), "enabled_indexers", len(indexers),
+			"interval", feedScrapeInterval.String(), "max_items_per_indexer", feedScrapeMaxItems)
+
+		var completed, failed, skipped, fetched, eligible, rejected atomic.Int64
+		pool := pond.NewPool(3)
+		for _, indexer := range optedIn {
 			pool.Submit(func() {
-				scrapeTorznabFeed(indexer, j.Logger())
+				result := scrapeTorznabFeed(indexer, log)
+				switch result.status {
+				case "done":
+					completed.Add(1)
+				case "skipped":
+					skipped.Add(1)
+				default:
+					failed.Add(1)
+				}
+				fetched.Add(int64(result.fetched))
+				eligible.Add(int64(result.eligible))
+				rejected.Add(int64(result.rejected))
 			})
 		}
-		return pool.Stop().Wait()
+		err = pool.Stop().Wait()
+		log.Info("torznab feed scrape cycle finished",
+			"indexers", len(optedIn),
+			"completed", completed.Load(), "skipped", skipped.Load(), "failed", failed.Load(),
+			"fetched", fetched.Load(), "eligible", eligible.Load(), "rejected", rejected.Load(),
+			"duration", time.Since(started).String())
+		if err != nil {
+			log.Error("torznab feed scrape cycle failed", "error", err)
+		}
+		return err
 	},
 })
 
-func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logger) {
+func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logger) (result feedScrapeResult) {
+	started := time.Now()
+	result.status = "failed"
+	log.Info("torznab feed scrape started", "indexer_id", indexer.Id, "indexer", indexer.Name, "type", indexer.Type)
+	defer func() {
+		result.duration = time.Since(started)
+		log.Info("torznab feed scrape finished",
+			"indexer_id", indexer.Id, "indexer", indexer.Name,
+			"status", result.status, "fetched", result.fetched, "eligible", result.eligible,
+			"rejected", result.rejected, "magnet_attempts", result.magnetAttempts,
+			"magnet_failures", result.magnetFailures, "duration", result.duration.String())
+	}()
+
 	// The checkbox or global enabled state can change between scheduling
 	// and execution; respect any such change before making HTTP requests.
 	current, err := torznab_indexer.GetById(indexer.Id)
 	if err != nil {
-		log.Error("failed to refresh feed indexer", "id", indexer.Id, "error", err)
-		return
+		log.Error("failed to refresh feed indexer", "indexer_id", indexer.Id, "indexer", indexer.Name, "error", err)
+		return result
 	}
 	if current == nil || current.Disabled || !current.ScrapeFeed {
-		return
+		result.status = "skipped"
+		log.Info("feed scrape skipped: indexer disabled or opt-in removed", "indexer_id", indexer.Id, "indexer", indexer.Name)
+		return result
 	}
 	indexer = current
 
 	limiter, err := indexer.GetRateLimiter()
 	if err != nil {
-		log.Error("failed to get feed rate limiter", "indexer", indexer.Name, "error", err)
-		return
+		log.Error("failed to get feed rate limiter", "indexer_id", indexer.Id, "indexer", indexer.Name, "error", err)
+		return result
 	}
 	if limiter != nil {
 		allowed, err := limiter.Try()
 		if err != nil {
-			log.Warn("feed rate-limit check failed", "indexer", indexer.Name, "error", err)
-			return
+			log.Warn("feed rate-limit check failed", "indexer_id", indexer.Id, "indexer", indexer.Name, "error", err)
+			return result
 		}
 		if !allowed.Allowed {
-			log.Debug("feed scrape skipped by rate limit", "indexer", indexer.Name, "retry_after", allowed.RetryAfter.String())
-			return
+			result.status = "skipped"
+			log.Info("feed scrape skipped: rate limited", "indexer_id", indexer.Id, "indexer", indexer.Name,
+				"retry_after", allowed.RetryAfter.String())
+			return result
 		}
 	}
 
 	client, err := indexer.GetClient()
 	if err != nil {
-		log.Error("failed to get feed indexer client", "indexer", indexer.Name, "error", err)
-		return
+		log.Error("failed to get feed indexer client", "indexer_id", indexer.Id, "indexer", indexer.Name, "error", err)
+		return result
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), feedScrapeTimeout)
 	defer cancel()
 
+	log.Debug("requesting latest torznab feed", "indexer_id", indexer.Id, "indexer", indexer.Name,
+		"search_type", "search", "query_empty", true, "limit", feedScrapeMaxItems)
+	searchStarted := time.Now()
 	results, err := client.Search(ctx, feedScrapeQuery())
 	if err != nil {
-		log.Warn("feed scrape search failed", "indexer", indexer.Name, "error", err)
-		return
+		log.Warn("feed scrape search failed", "indexer_id", indexer.Id, "indexer", indexer.Name,
+			"duration", time.Since(searchStarted).String(), "error", err)
+		return result
 	}
-	fetched := len(results)
+	result.fetched = len(results)
+	log.Debug("torznab feed search succeeded", "indexer_id", indexer.Id, "indexer", indexer.Name,
+		"fetched", result.fetched, "search_duration", time.Since(searchStarted).String())
+
 	// Some indexers ignore the requested limit. Bound both database writes
 	// and any torrent-file downloads per scheduled run.
 	if len(results) > feedScrapeMaxItems {
+		log.Info("torznab feed results truncated", "indexer_id", indexer.Id, "indexer", indexer.Name,
+			"returned", len(results), "max_items", feedScrapeMaxItems)
 		results = results[:feedScrapeMaxItems]
 	}
 
 	// Reuse the existing Torznab magnet-resolution behavior. Missing magnet
 	// metadata may hide the file list required for torrent_stream mapping.
+	var magnetFailures atomic.Int64
 	fetchPool := pond.NewPool(4)
 	for i := range results {
 		item := &results[i]
 		if item.HasMissingData() && item.SourceLink != "" {
+			result.magnetAttempts++
 			fetchPool.Submit(func() {
 				if err := item.EnsureMagnet(ctx); err != nil {
-					log.Debug("failed to resolve feed infohash", "indexer", indexer.Name, "error", err)
+					magnetFailures.Add(1)
+					log.Debug("failed to resolve feed magnet",
+						"indexer_id", indexer.Id, "indexer", indexer.Name, "error", err)
 				}
 			})
 		}
 	}
 	if err := fetchPool.Stop().Wait(); err != nil {
-		log.Warn("failed to finish feed torrent downloads", "indexer", indexer.Name, "error", err)
+		log.Warn("failed to finish feed magnet downloads", "indexer_id", indexer.Id, "indexer", indexer.Name, "error", err)
 	}
+	result.magnetFailures = int(magnetFailures.Load())
 
 	items := make([]torrent_info.TorrentItem, 0, len(results))
 	for i := range results {
 		item := &results[i]
 		if item.Title == "" || len(item.Hash) != 40 {
+			result.rejected++
 			continue
 		}
 		if _, err := hex.DecodeString(item.Hash); err != nil {
+			result.rejected++
 			continue
 		}
 		if item.Indexer == "" {
@@ -158,18 +235,36 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 			Files:        item.Files,
 		})
 	}
+	result.eligible = len(items)
+	log.Debug("torznab feed candidates prepared",
+		"indexer_id", indexer.Id, "indexer", indexer.Name,
+		"eligible", result.eligible, "rejected", result.rejected,
+		"magnet_attempts", result.magnetAttempts, "magnet_failures", result.magnetFailures)
 
 	// A feed has no title identity yet. Leave category unknown so the normal
 	// parser and MatchLab mapping workers can classify the newly seen torrent.
 	if len(items) > 0 {
 		db.WaitForMaintenance()
-		if !torznab_indexer.IsEnabled(indexer.Id) {
-			return
+		updated, err := torznab_indexer.GetById(indexer.Id)
+		if err != nil {
+			log.Error("failed to recheck feed indexer before saving", "indexer_id", indexer.Id, "indexer", indexer.Name, "error", err)
+			return result
 		}
+		if updated == nil || updated.Disabled || !updated.ScrapeFeed {
+			result.status = "skipped"
+			log.Info("feed scrape save skipped: indexer disabled", "indexer_id", indexer.Id, "indexer", indexer.Name)
+			return result
+		}
+		saveStarted := time.Now()
 		if err := torrent_info.Upsert(items, torrent_info.TorrentInfoCategoryUnknown, false); err != nil {
-			log.Error("failed to save scraped feed torrents", "indexer", indexer.Name, "error", err, "count", len(items))
-			return
+			log.Error("failed to save scraped feed torrents", "indexer_id", indexer.Id, "indexer", indexer.Name,
+				"error", err, "eligible", len(items), "duration", time.Since(saveStarted).String())
+			return result
 		}
+		log.Debug("torznab feed candidates upserted", "indexer_id", indexer.Id, "indexer", indexer.Name,
+			"submitted", len(items), "duration", time.Since(saveStarted).String())
 	}
-	log.Info("scraped torznab feed", "indexer", indexer.Name, "fetched", fetched, "accepted", len(items))
+	// 'eligible' is not a new-torrent count: Upsert deduplicates existing hashes.
+	result.status = "done"
+	return result
 }

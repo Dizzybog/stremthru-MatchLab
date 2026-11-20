@@ -308,9 +308,9 @@ func handleWorkerProgress(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// The MatchLab reset is intentionally asynchronous: updating millions of
-// torrent_stream rows can exceed the HTTP proxy timeout. GET returns persistent
-// job status so a refresh or a second dashboard instance can track completion.
+// The MatchLab reset is asynchronous because updating torrent_info across a
+// large library can exceed proxy timeouts. It never clears stream identities.
+// GET returns durable status across dashboard reloads or instances.
 func handleResetMatchLabWorker(w http.ResponseWriter, r *http.Request) {
 	if r.PathValue("id") != "map-imdb-torrent" || !matchlab.Enabled() {
 		ErrorBadRequest(r).WithMessage("MatchLab worker is not enabled").Send(w, r)
