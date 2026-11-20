@@ -1778,8 +1778,7 @@ func ExistsByHash(hashes []string) (map[string]bool, error) {
 // MatchLabResetStats reports how much data the reset actually touched.
 // It helps distinguish a successful reset from a dashboard using another DB.
 type MatchLabResetStats struct {
-	Torrents    int64 `json:"torrents"`
-	StreamFiles int64 `json:"stream_files"`
+	Torrents int64 `json:"torrents"`
 }
 
 // ResetAllMatchLabMappings keeps the original programmatic error-only API.
@@ -1788,62 +1787,28 @@ func ResetAllMatchLabMappings(includeParsing bool) error {
 	return err
 }
 
-// ResetAllMatchLabMappingsWithStats clears derived identities and requeues all
-// torrents in one transaction. File rows and media metadata are not removed.
-// A successful response reports actual affected row counts from the database.
+// ResetAllMatchLabMappingsWithStats only invalidates MatchLab's per-torrent
+// processing state. Unlike a destructive identity reset, this does not touch
+// imdb_torrent, anidb_torrent or torrent_stream. The ordinary MatchLab mapping
+// worker replaces derived identities for each torrent as it reprocesses it.
+// Increment the revision even for already-pending rows: an in-flight HTTP
+// response from before the reset must not be allowed to commit stale results.
+//
+// A single UPDATE is atomic, and unlike the old TRUNCATE/stream-wide reset,
+// it does not take the global maintenance writer gate.
 func ResetAllMatchLabMappingsWithStats(includeParsing bool) (MatchLabResetStats, error) {
 	var stats MatchLabResetStats
-	// Drain active StremThru writers before touching shared mapping tables.
-	// Other in-process writes resume automatically after commit or rollback.
-	tx, err := db.BeginMaintenance()
-	if err != nil {
-		return stats, err
-	}
-	defer tx.Rollback()
-
-	reset := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
+	query := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
 		"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
 	if includeParsing {
-		reset += ", parser_version = 0, parser_input = '', parsed_at = NULL"
+		query += ", parser_version = 0, parser_input = '', parsed_at = NULL"
 	}
-	res, err := tx.Exec(reset)
+	res, err := db.Exec(query)
 	if err != nil {
 		return stats, err
 	}
 	stats.Torrents, err = res.RowsAffected()
-	if err != nil {
-		return stats, err
-	}
-
-	// Both mapping tables store derived information; TRUNCATE keeps large
-	// PostgreSQL resets fast and avoids accumulating DELETE row versions.
-	if db.Dialect == db.DBDialectPostgres {
-		_, err = tx.Exec("TRUNCATE TABLE imdb_torrent, anidb_torrent")
-	} else {
-		_, err = tx.Exec("DELETE FROM imdb_torrent")
-		if err == nil {
-			_, err = tx.Exec("DELETE FROM anidb_torrent")
-		}
-	}
-	if err != nil {
-		return stats, err
-	}
-
-	// Preserve file paths, size, index and media info. Report the number of
-	// file rows whose stale identities were actually cleared.
-	res, err = tx.Exec("UPDATE torrent_stream SET sid = '*', asid = '' WHERE sid != '*' OR asid != ''")
-	if err != nil {
-		return stats, err
-	}
-	stats.StreamFiles, err = res.RowsAffected()
-	if err != nil {
-		return stats, err
-	}
-	if err = tx.Commit(); err != nil {
-		return stats, err
-	}
-	ts.InvalidateAllFiles()
-	return stats, nil
+	return stats, err
 }
 
 // ResetMatchLabMappingsByHashes requeues selected hashes for the external
