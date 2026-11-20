@@ -33,7 +33,6 @@ export type MatchLabResetStatus = {
   status: "idle" | "started" | "done" | "failed" | "interrupted";
   include_parsing: boolean;
   torrents: number;
-  stream_files: number;
   updated_at?: string;
   error?: string;
 };
