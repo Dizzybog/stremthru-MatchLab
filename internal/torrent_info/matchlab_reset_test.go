@@ -44,10 +44,12 @@ func prepareMatchLabResetTest(t *testing.T, hashDigit string) (hash, path string
 
 func verifyMatchLabReset(t *testing.T, hash, path string, includeParsing bool) {
 	t.Helper()
+	// Dashboard reset only invalidates MatchLab processing state. Existing
+	// derived identities stay available until each new mapping replaces them.
 	for _, table := range []string{"imdb_torrent", "anidb_torrent"} {
 		var count int
-		require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM "+table).Scan(&count))
-		require.Zero(t, count, table)
+		require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM "+table+" WHERE hash = ?", hash).Scan(&count))
+		require.Equal(t, 1, count, table)
 	}
 	var sid, asid string
 	var index int
@@ -55,17 +57,16 @@ func verifyMatchLabReset(t *testing.T, hash, path string, includeParsing bool) {
 	require.NoError(t, db.QueryRow(
 		"SELECT sid, asid, i, s FROM torrent_stream WHERE h = ? AND p = ?", hash, path,
 	).Scan(&sid, &asid, &index, &size))
-	require.Equal(t, "*", sid)
-	require.Empty(t, asid)
+	require.Equal(t, "tt1234567:1:2", sid)
+	require.Equal(t, "42:2", asid)
 	require.Equal(t, 3, index)
 	require.Equal(t, int64(4096), size)
 
-	// The previously cached non-empty identities must not survive.
 	files, err := torrent_stream.GetFilesByHashes([]string{hash})
 	require.NoError(t, err)
 	require.Len(t, files[hash], 1)
-	require.Equal(t, "*", files[hash][0].SId)
-	require.Empty(t, files[hash][0].ASId)
+	require.Equal(t, sid, files[hash][0].SId)
+	require.Equal(t, asid, files[hash][0].ASId)
 
 	var parserVersion int
 	var parserInput string
@@ -215,15 +216,26 @@ func TestResetAllMatchLabMappingsReportsAffectedRows(t *testing.T) {
 	stats, err := ResetAllMatchLabMappingsWithStats(false)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), stats.Torrents)
-	require.Equal(t, int64(1), stats.StreamFiles)
 
 	var sid string
 	require.NoError(t, db.QueryRow("SELECT sid FROM torrent_stream WHERE h = ? AND p = ?", hash, path).Scan(&sid))
-	require.Equal(t, "*", sid)
+	require.Equal(t, "tt1234567:1:2", sid)
 
-	// A repeated reset should not claim to have cleared stale SID rows again.
+	// An additional reset must invalidate any match that was in flight during
+	// the earlier reset, without clearing the stream or the identity tables.
 	stats, err = ResetAllMatchLabMappingsWithStats(false)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), stats.Torrents)
-	require.Zero(t, stats.StreamFiles)
+	var revision int64
+	require.NoError(t, db.QueryRow(
+		"SELECT matchlab_file_revision FROM torrent_info WHERE hash = ?", hash,
+	).Scan(&revision))
+	require.Equal(t, int64(5), revision)
+
+	var count int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM imdb_torrent WHERE hash = ?", hash).Scan(&count))
+	require.Equal(t, 1, count)
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM anidb_torrent WHERE hash = ?", hash).Scan(&count))
+	require.Equal(t, 1, count)
 }
+
