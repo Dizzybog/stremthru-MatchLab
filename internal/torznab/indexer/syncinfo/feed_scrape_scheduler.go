@@ -33,13 +33,13 @@ func feedScrapeQuery() url.Values {
 }
 
 type feedScrapeResult struct {
-	status          string
-	fetched         int
-	eligible        int
-	rejected        int
-	magnetAttempts  int
-	magnetFailures  int
-	duration        time.Duration
+	status         string
+	fetched        int
+	eligible       int
+	rejected       int
+	magnetAttempts int
+	magnetFailures int
+	duration       time.Duration
 }
 
 // This is deliberately separate from the on-demand, SID-based indexer sync.
