@@ -238,4 +238,3 @@ func TestResetAllMatchLabMappingsReportsAffectedRows(t *testing.T) {
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM anidb_torrent WHERE hash = ?", hash).Scan(&count))
 	require.Equal(t, 1, count)
 }
-
