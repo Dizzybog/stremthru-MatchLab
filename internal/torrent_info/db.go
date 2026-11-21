@@ -1787,39 +1787,102 @@ func ResetAllMatchLabMappings(includeParsing bool) error {
 	return err
 }
 
+// matchLabResetBatchSize bounds how many torrent_info rows one reset batch
+// rewrites, and so how long writers pause for it.
+const matchLabResetBatchSize = 5000
+
 // ResetAllMatchLabMappingsWithStats only invalidates MatchLab's per-torrent
 // processing state. Unlike a destructive identity reset, this does not touch
 // imdb_torrent, anidb_torrent or torrent_stream. The ordinary MatchLab mapping
 // worker replaces derived identities for each torrent as it reprocesses it.
-// Increment the revision even for already-pending rows: an in-flight HTTP
-// response from before the reset must not be allowed to commit stale results.
-//
-// The UPDATE touches every torrent_info row. Run concurrently with workers
-// that write several torrent_info rows per transaction (parser, MatchLab
-// mapping, feed scraping, stream updates) in another order, it deadlocks in
-// PostgreSQL. It therefore takes the global maintenance writer gate: active
-// writers finish first, new ones wait at their checkpoints until it commits.
+// Only rows that hold MatchLab state (or, with includeParsing, parser state)
+// are rewritten: an already-pending row has nothing to reset. Rewritten rows
+// get a new revision, so an older in-flight response cannot commit for them.
 func ResetAllMatchLabMappingsWithStats(includeParsing bool) (MatchLabResetStats, error) {
+	return ResetAllMatchLabMappingsInBatches(includeParsing, matchLabResetBatchSize, nil)
+}
+
+// ResetAllMatchLabMappingsInBatches resets every torrent in hash order,
+// batchSize rows per short transaction. Each batch takes the global
+// maintenance writer gate: workers that write several torrent_info rows per
+// transaction (parser, MatchLab mapping, feed scraping, stream updates) cannot
+// run alongside it and deadlock, yet they only pause for one batch at a time
+// and keep working between batches. A torrent mapped between batches is
+// either already reset (and correctly remapped) or still ahead (and reset).
+// Only state from before the reset started is reset: a torrent the workers
+// map (or parse) again between batches keeps that new result. The start time
+// comes from the database clock, the same clock that stamps mapped_at and
+// parsed_at. Retry times record no moment of their own and are always reset.
+// onProgress, if set, receives the running total after every batch.
+func ResetAllMatchLabMappingsInBatches(
+	includeParsing bool, batchSize int, onProgress func(MatchLabResetStats),
+) (MatchLabResetStats, error) {
 	var stats MatchLabResetStats
+	var started db.Timestamp
+	if err := db.QueryRow("SELECT " + db.CurrentTimestamp).Scan(&started); err != nil {
+		return stats, err
+	}
+	set := "matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
+		"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
+	holds := "(matchlab_mapped_at <= ? OR (matchlab_mapped_at IS NULL AND " +
+		"(matchlab_retry_at IS NOT NULL OR matchlab_parse_retry_at IS NOT NULL))"
+	args := []any{started}
+	if includeParsing {
+		set += ", parser_version = 0, parser_input = '', parsed_at = NULL"
+		holds += " OR parsed_at <= ? OR (parsed_at IS NULL AND (parser_version != 0 OR parser_input != ''))"
+		args = append(args, started)
+	}
+	holds += ")"
+	after := ""
+	for {
+		reset, last, err := resetMatchLabBatch(set, holds, args, after, max(1, batchSize))
+		if err != nil {
+			return stats, err
+		}
+		if last == "" {
+			return stats, nil
+		}
+		stats.Torrents += reset
+		after = last
+		if onProgress != nil {
+			onProgress(stats)
+		}
+	}
+}
+
+// resetMatchLabBatch resets the next batchSize hashes after `after` that
+// hold state, and returns the batch's last hash, or "" when none is left.
+// Resuming after the last hash reads the table once in total, in hash order.
+func resetMatchLabBatch(set, holds string, holdsArgs []any, after string, batchSize int) (int64, string, error) {
 	tx, err := db.BeginMaintenance()
 	if err != nil {
-		return stats, err
+		return 0, "", err
 	}
 	defer tx.Rollback()
 
-	query := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
-		"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
-	if includeParsing {
-		query += ", parser_version = 0, parser_input = '', parsed_at = NULL"
+	var last sql.NullString
+	selectArgs := append(append([]any{after}, holdsArgs...), batchSize)
+	if err := tx.QueryRow(
+		"SELECT MAX(hash) FROM (SELECT hash FROM torrent_info WHERE hash > ? AND "+holds+
+			" ORDER BY hash LIMIT ?) batch",
+		selectArgs...,
+	).Scan(&last); err != nil {
+		return 0, "", err
 	}
-	res, err := tx.Exec(query)
+	if !last.Valid {
+		return 0, "", tx.Commit()
+	}
+	updateArgs := append([]any{after, last.String}, holdsArgs...)
+	res, err := tx.Exec("UPDATE torrent_info SET "+set+" WHERE hash > ? AND hash <= ? AND "+holds,
+		updateArgs...)
 	if err != nil {
-		return stats, err
+		return 0, "", err
 	}
-	if stats.Torrents, err = res.RowsAffected(); err != nil {
-		return stats, err
+	reset, err := res.RowsAffected()
+	if err != nil {
+		return 0, "", err
 	}
-	return stats, tx.Commit()
+	return reset, last.String, tx.Commit()
 }
 
 // ResetMatchLabMappingsByHashes requeues selected hashes for the external
