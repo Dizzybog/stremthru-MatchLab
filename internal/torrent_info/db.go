@@ -1794,21 +1794,32 @@ func ResetAllMatchLabMappings(includeParsing bool) error {
 // Increment the revision even for already-pending rows: an in-flight HTTP
 // response from before the reset must not be allowed to commit stale results.
 //
-// A single UPDATE is atomic, and unlike the old TRUNCATE/stream-wide reset,
-// it does not take the global maintenance writer gate.
+// The UPDATE touches every torrent_info row. Run concurrently with workers
+// that write several torrent_info rows per transaction (parser, MatchLab
+// mapping, feed scraping, stream updates) in another order, it deadlocks in
+// PostgreSQL. It therefore takes the global maintenance writer gate: active
+// writers finish first, new ones wait at their checkpoints until it commits.
 func ResetAllMatchLabMappingsWithStats(includeParsing bool) (MatchLabResetStats, error) {
 	var stats MatchLabResetStats
+	tx, err := db.BeginMaintenance()
+	if err != nil {
+		return stats, err
+	}
+	defer tx.Rollback()
+
 	query := "UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
 		"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
 	if includeParsing {
 		query += ", parser_version = 0, parser_input = '', parsed_at = NULL"
 	}
-	res, err := db.Exec(query)
+	res, err := tx.Exec(query)
 	if err != nil {
 		return stats, err
 	}
-	stats.Torrents, err = res.RowsAffected()
-	return stats, err
+	if stats.Torrents, err = res.RowsAffected(); err != nil {
+		return stats, err
+	}
+	return stats, tx.Commit()
 }
 
 // ResetMatchLabMappingsByHashes requeues selected hashes for the external

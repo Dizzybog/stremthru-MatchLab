@@ -4,16 +4,23 @@ import (
 	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MunifTanjim/stremthru/internal/db"
 	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/torrent_stream"
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 )
 
 func prepareMatchLabResetTest(t *testing.T, hashDigit string) (hash, path string) {
 	t.Helper()
 	setupTestDB(t)
+	return prepareMatchLabResetRows(t, hashDigit)
+}
+
+func prepareMatchLabResetRows(t *testing.T, hashDigit string) (hash, path string) {
+	t.Helper()
 	hash = strings.Repeat(hashDigit, 40)
 	path = "/Series/S01E02.mkv"
 	require.NoError(t, Upsert([]TorrentInfoInsertData{{
@@ -237,4 +244,39 @@ func TestResetAllMatchLabMappingsReportsAffectedRows(t *testing.T) {
 	require.Equal(t, 1, count)
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM anidb_torrent WHERE hash = ?", hash).Scan(&count))
 	require.Equal(t, 1, count)
+}
+
+// A global reset touches every torrent_info row: it must wait for active
+// writer transactions instead of running alongside them (deadlock).
+func TestResetAllMatchLabMappingsWaitsForActiveWriters(t *testing.T) {
+	// Several connections to one shared database, so that only the writer
+	// gate, not the connection pool, can hold the reset back.
+	sqlDB, err := sql.Open("sqlite3", "file:matchlab_reset_gate?mode=memory&cache=shared")
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(4)
+	goose.SetLogger(goose.NopLogger())
+	require.NoError(t, goose.SetDialect("sqlite"))
+	require.NoError(t, goose.Up(sqlDB, "../../migrations/sqlite"))
+	db.SetForTesting(sqlDB, t.Cleanup)
+	hash, path := prepareMatchLabResetRows(t, "d")
+
+	writer, err := db.Begin()
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- ResetAllMatchLabMappings(false) }()
+	select {
+	case err := <-done:
+		t.Fatalf("reset ran alongside an active writer transaction: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, writer.Commit())
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("reset did not run after the writer finished")
+	}
+	verifyMatchLabReset(t, hash, path, false)
 }
