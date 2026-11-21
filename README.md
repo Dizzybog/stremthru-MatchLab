@@ -86,8 +86,9 @@ processing marker, retry timestamps and revision for every torrent. The optional
 truncate IMDb/AniDB tables or rewrite `torrent_stream`. Existing identities
 remain visible until MatchLab remaps each torrent; the revision prevents an
 in-flight old result from overwriting the newly queued state. The reset only
-rewrites torrents that hold MatchLab (or, with parsing, parser) state, in hash
-order and in batches of 5,000. During each batch, background workers pause
+rewrites torrents that held MatchLab (or, with parsing, parser) state when it
+started, in hash order and in batches of 5,000; a torrent remapped meanwhile
+keeps its new result. During each batch, background workers pause
 briefly: active database writes finish first and new ones wait until the batch
 commits, so the reset cannot deadlock with them; between batches they continue.
 

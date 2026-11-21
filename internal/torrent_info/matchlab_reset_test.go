@@ -328,3 +328,47 @@ func TestResetAllMatchLabMappingsInBatchesSkipsPendingRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, stats.Torrents)
 }
+
+// A torrent the workers map again while the reset runs keeps its new result:
+// only state from before the reset started is reset.
+func TestResetAllMatchLabMappingsKeepsMappingsMadeDuringTheReset(t *testing.T) {
+	setupTestDB(t)
+	hashes := []string{}
+	for _, digit := range []string{"1", "2", "3"} {
+		hash := "c" + strings.Repeat(digit, 39)
+		hashes = append(hashes, hash)
+		require.NoError(t, Upsert([]TorrentInfoInsertData{{
+			Hash: hash, TorrentTitle: "Film " + digit + " 2024", Source: TorrentInfoSourceDHT, Size: 1024,
+		}}, TorrentInfoCategoryMovie, false))
+	}
+	before := db.Timestamp{Time: time.Now().Add(-time.Hour)}
+	_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = ?, matchlab_file_revision = 3", before)
+	require.NoError(t, err)
+
+	remapped := db.Timestamp{Time: time.Now().Add(time.Hour)}
+	stats, err := ResetAllMatchLabMappingsInBatches(false, 1, func(s MatchLabResetStats) {
+		if s.Torrents == 1 {
+			// The mapping worker maps c333… again between two batches.
+			_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = ?, matchlab_file_revision = 9 WHERE hash = ?",
+				remapped, hashes[2])
+			require.NoError(t, err)
+		}
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), stats.Torrents)
+
+	var revision int64
+	var mappedAt db.Timestamp
+	require.NoError(t, db.QueryRow(
+		"SELECT matchlab_file_revision, matchlab_mapped_at FROM torrent_info WHERE hash = ?", hashes[2],
+	).Scan(&revision, &mappedAt))
+	require.Equal(t, int64(9), revision, "a mapping made during the reset is kept")
+	require.False(t, mappedAt.IsZero())
+	for _, hash := range hashes[:2] {
+		require.NoError(t, db.QueryRow(
+			"SELECT matchlab_file_revision, matchlab_mapped_at FROM torrent_info WHERE hash = ?", hash,
+		).Scan(&revision, &mappedAt))
+		require.Equal(t, int64(4), revision, hash)
+		require.True(t, mappedAt.IsZero(), hash)
+	}
+}

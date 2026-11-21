@@ -1809,22 +1809,33 @@ func ResetAllMatchLabMappingsWithStats(includeParsing bool) (MatchLabResetStats,
 // run alongside it and deadlock, yet they only pause for one batch at a time
 // and keep working between batches. A torrent mapped between batches is
 // either already reset (and correctly remapped) or still ahead (and reset).
+// Only state from before the reset started is reset: a torrent the workers
+// map (or parse) again between batches keeps that new result. The start time
+// comes from the database clock, the same clock that stamps mapped_at and
+// parsed_at. Retry times record no moment of their own and are always reset.
 // onProgress, if set, receives the running total after every batch.
 func ResetAllMatchLabMappingsInBatches(
 	includeParsing bool, batchSize int, onProgress func(MatchLabResetStats),
 ) (MatchLabResetStats, error) {
 	var stats MatchLabResetStats
+	var started db.Timestamp
+	if err := db.QueryRow("SELECT " + db.CurrentTimestamp).Scan(&started); err != nil {
+		return stats, err
+	}
 	set := "matchlab_mapped_at = NULL, matchlab_retry_at = NULL, " +
 		"matchlab_parse_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1"
-	holds := "(matchlab_mapped_at IS NOT NULL OR matchlab_retry_at IS NOT NULL OR matchlab_parse_retry_at IS NOT NULL"
+	holds := "(matchlab_mapped_at <= ? OR (matchlab_mapped_at IS NULL AND " +
+		"(matchlab_retry_at IS NOT NULL OR matchlab_parse_retry_at IS NOT NULL))"
+	args := []any{started}
 	if includeParsing {
 		set += ", parser_version = 0, parser_input = '', parsed_at = NULL"
-		holds += " OR parser_version != 0 OR parser_input != '' OR parsed_at IS NOT NULL"
+		holds += " OR parsed_at <= ? OR (parsed_at IS NULL AND (parser_version != 0 OR parser_input != ''))"
+		args = append(args, started)
 	}
 	holds += ")"
 	after := ""
 	for {
-		reset, last, err := resetMatchLabBatch(set, holds, after, max(1, batchSize))
+		reset, last, err := resetMatchLabBatch(set, holds, args, after, max(1, batchSize))
 		if err != nil {
 			return stats, err
 		}
@@ -1842,7 +1853,7 @@ func ResetAllMatchLabMappingsInBatches(
 // resetMatchLabBatch resets the next batchSize hashes after `after` that
 // hold state, and returns the batch's last hash, or "" when none is left.
 // Resuming after the last hash reads the table once in total, in hash order.
-func resetMatchLabBatch(set, holds, after string, batchSize int) (int64, string, error) {
+func resetMatchLabBatch(set, holds string, holdsArgs []any, after string, batchSize int) (int64, string, error) {
 	tx, err := db.BeginMaintenance()
 	if err != nil {
 		return 0, "", err
@@ -1850,18 +1861,20 @@ func resetMatchLabBatch(set, holds, after string, batchSize int) (int64, string,
 	defer tx.Rollback()
 
 	var last sql.NullString
+	selectArgs := append(append([]any{after}, holdsArgs...), batchSize)
 	if err := tx.QueryRow(
 		"SELECT MAX(hash) FROM (SELECT hash FROM torrent_info WHERE hash > ? AND "+holds+
 			" ORDER BY hash LIMIT ?) batch",
-		after, batchSize,
+		selectArgs...,
 	).Scan(&last); err != nil {
 		return 0, "", err
 	}
 	if !last.Valid {
 		return 0, "", tx.Commit()
 	}
+	updateArgs := append([]any{after, last.String}, holdsArgs...)
 	res, err := tx.Exec("UPDATE torrent_info SET "+set+" WHERE hash > ? AND hash <= ? AND "+holds,
-		after, last.String)
+		updateArgs...)
 	if err != nil {
 		return 0, "", err
 	}
