@@ -85,9 +85,11 @@ processing marker, retry timestamps and revision for every torrent. The optional
 **Also reset parsing** checkbox additionally clears parser state. It does not
 truncate IMDb/AniDB tables or rewrite `torrent_stream`. Existing identities
 remain visible until MatchLab remaps each torrent; the revision prevents an
-in-flight old result from overwriting the newly queued state. While the reset
-runs, background workers pause briefly: active database writes finish first and
-new ones wait until the reset commits, so the reset cannot deadlock with them.
+in-flight old result from overwriting the newly queued state. The reset only
+rewrites torrents that hold MatchLab (or, with parsing, parser) state, in hash
+order and in batches of 5,000. During each batch, background workers pause
+briefly: active database writes finish first and new ones wait until the batch
+commits, so the reset cannot deadlock with them; between batches they continue.
 
 ### Torznab feed scraping (fork)
 

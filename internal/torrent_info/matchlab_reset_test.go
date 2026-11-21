@@ -228,16 +228,16 @@ func TestResetAllMatchLabMappingsReportsAffectedRows(t *testing.T) {
 	require.NoError(t, db.QueryRow("SELECT sid FROM torrent_stream WHERE h = ? AND p = ?", hash, path).Scan(&sid))
 	require.Equal(t, "tt1234567:1:2", sid)
 
-	// An additional reset must invalidate any match that was in flight during
-	// the earlier reset, without clearing the stream or the identity tables.
+	// The torrent is pending now: an additional reset has nothing to rewrite,
+	// and still leaves the stream and the identity tables alone.
 	stats, err = ResetAllMatchLabMappingsWithStats(false)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), stats.Torrents)
+	require.Zero(t, stats.Torrents)
 	var revision int64
 	require.NoError(t, db.QueryRow(
 		"SELECT matchlab_file_revision FROM torrent_info WHERE hash = ?", hash,
 	).Scan(&revision))
-	require.Equal(t, int64(5), revision)
+	require.Equal(t, int64(4), revision)
 
 	var count int
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM imdb_torrent WHERE hash = ?", hash).Scan(&count))
@@ -279,4 +279,52 @@ func TestResetAllMatchLabMappingsWaitsForActiveWriters(t *testing.T) {
 		t.Fatal("reset did not run after the writer finished")
 	}
 	verifyMatchLabReset(t, hash, path, false)
+}
+
+// The global reset walks hash order in batches and only rewrites rows that
+// hold MatchLab state; already-pending rows are left alone.
+func TestResetAllMatchLabMappingsInBatchesSkipsPendingRows(t *testing.T) {
+	setupTestDB(t)
+	hashes := []string{}
+	// Hashes no other test in this package uses: Upsert skips hashes it saw.
+	for _, digit := range []string{"1", "2", "3", "4", "5", "6"} {
+		hash := "b" + strings.Repeat(digit, 39)
+		hashes = append(hashes, hash)
+		require.NoError(t, Upsert([]TorrentInfoInsertData{{
+			Hash: hash, TorrentTitle: "Show " + digit + " S01E01", Source: TorrentInfoSourceDHT, Size: 1024,
+		}}, TorrentInfoCategorySeries, false))
+	}
+	// Five mapped torrents and one still pending (hash b666…).
+	_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = "+db.CurrentTimestamp+
+		", matchlab_file_revision = 3 WHERE hash != ?", hashes[5])
+	require.NoError(t, err)
+	_, err = db.Exec("UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_file_revision = 3 WHERE hash = ?", hashes[5])
+	require.NoError(t, err)
+
+	progress := []int64{}
+	stats, err := ResetAllMatchLabMappingsInBatches(false, 2, func(s MatchLabResetStats) {
+		progress = append(progress, s.Torrents)
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(5), stats.Torrents)
+	require.Equal(t, []int64{2, 4, 5}, progress)
+
+	for i, hash := range hashes {
+		var revision int64
+		var mappedAt sql.NullInt64
+		require.NoError(t, db.QueryRow(
+			"SELECT matchlab_file_revision, matchlab_mapped_at FROM torrent_info WHERE hash = ?", hash,
+		).Scan(&revision, &mappedAt))
+		require.False(t, mappedAt.Valid, hash)
+		if i == 5 {
+			require.Equal(t, int64(3), revision, "a pending row is not rewritten")
+		} else {
+			require.Equal(t, int64(4), revision, hash)
+		}
+	}
+
+	// Nothing holds state any more: a second reset touches no row.
+	stats, err = ResetAllMatchLabMappingsWithStats(false)
+	require.NoError(t, err)
+	require.Zero(t, stats.Torrents)
 }
