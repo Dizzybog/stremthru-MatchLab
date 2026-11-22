@@ -59,15 +59,7 @@ func getStreamsForHashesLegacy(stremType, stremId string, hashes []string, nsid 
 				}
 			}
 			if idToMatch != "" {
-				for i := range files {
-					f := &files[i]
-					if f.IsVideo() {
-						if f.SId == idToMatch || f.ASId == idToMatch {
-							file = f
-							break
-						}
-					}
-				}
+				file = torrent_stream.LargestMatchingVideo(files, idToMatch)
 			}
 			if file == nil && !matchlab.Enabled() && !nsid.IsAnime && nsid.IsSeries() && nsid.Episode != "" {
 				for i := range files {

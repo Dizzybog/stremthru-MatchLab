@@ -372,16 +372,8 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 			if tInfo, ok := tInfoByHash[item.Hash]; ok {
 				var file *torrent_stream.File
 				if files, ok := filesByHashes[item.Hash]; ok {
-					idToMatch := stremId
-					if idToMatch != "" {
-						for i := range files {
-							f := &files[i]
-							if f.IsVideo() {
-								if f.SId == idToMatch || f.ASId == idToMatch {
-									file = f
-								}
-							}
-						}
+					if stremId != "" {
+						file = torrent_stream.LargestMatchingVideo(files, stremId)
 					}
 				}
 				fName := ""
@@ -523,14 +515,7 @@ func GetStreamsFromIndexers(reqCtx context.Context, ctx *Ctx, stremType, stremId
 						}
 					}
 					if idToMatch != "" {
-						for i := range files {
-							f := &files[i]
-							if f.IsVideo() {
-								if f.SId == idToMatch || f.ASId == idToMatch {
-									file = f
-								}
-							}
-						}
+						file = torrent_stream.LargestMatchingVideo(files, idToMatch)
 					}
 				}
 				if file != nil {
