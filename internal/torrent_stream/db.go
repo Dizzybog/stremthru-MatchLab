@@ -321,12 +321,45 @@ func getAnimeFileForMAL(hash string, asid string) (*File, error) {
 }
 
 var query_get_file = fmt.Sprintf(
-	"SELECT %s, %s, %s FROM %s WHERE %s = ? AND %s = ?",
+	"SELECT %s, %s, %s FROM %s WHERE %s = ? AND %s = ? ORDER BY %s",
 	Column.Path, Column.Idx, Column.Size,
 	TableName,
 	Column.Hash,
 	Column.SId,
+	Column.Idx,
 )
+
+// IsLargerVideoThan reports whether f should be preferred over current for
+// the same stream ID: a larger file wins (a sample is smaller than the
+// episode it samples), and the lower index breaks a tie deterministically.
+func (f File) IsLargerVideoThan(current *File) bool {
+	if current == nil {
+		return true
+	}
+	if f.Size != current.Size {
+		return f.Size > current.Size
+	}
+	return f.Idx < current.Idx
+}
+
+// LargestMatchingVideo returns the largest video file whose SID or ASID is
+// one of ids. Torrents often carry sample files mapped to the same episode;
+// the largest file is the episode itself.
+func LargestMatchingVideo(files []File, ids ...string) *File {
+	var best *File
+	for i := range files {
+		f := &files[i]
+		if !f.IsVideo() || !slices.ContainsFunc(ids, func(id string) bool {
+			return id != "" && (f.SId == id || f.ASId == id)
+		}) {
+			continue
+		}
+		if f.IsLargerVideoThan(best) {
+			best = f
+		}
+	}
+	return best
+}
 
 func GetFile(hash string, sid string) (*File, error) {
 	if strings.HasPrefix(sid, "kitsu:") {
@@ -335,16 +368,35 @@ func GetFile(hash string, sid string) (*File, error) {
 	if strings.HasPrefix(sid, "mal:") {
 		return getAnimeFileForMAL(hash, sid)
 	}
-	row := db.QueryRow(query_get_file, hash, sid)
-	var file File
-	if err := row.Scan(&file.Path, &file.Idx, &file.Size); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
+	rows, err := db.Query(query_get_file, hash, sid)
+	if err != nil {
 		return nil, err
 	}
-	file.Normalize()
-	return &file, nil
+	defer rows.Close()
+	// Playback must pick the same file the stream list showed: the largest
+	// video for this SID, not an arbitrary row (often a sample).
+	var first *File
+	var best *File
+	for rows.Next() {
+		var file File
+		if err := rows.Scan(&file.Path, &file.Idx, &file.Size); err != nil {
+			return nil, err
+		}
+		file.Normalize()
+		if first == nil {
+			first = &file
+		}
+		if file.IsVideo() && file.IsLargerVideoThan(best) {
+			best = &file
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if best != nil {
+		return best, nil
+	}
+	return first, nil
 }
 
 // InvalidateFilesByHash prevents stale SID/ASID data after an external
@@ -451,7 +503,9 @@ func GetMatchingFilesByHashes(hashes []string, streamId string) (map[string]File
 			if !file.IsVideo() {
 				continue
 			}
-			if _, exists := result[hash]; exists {
+			// Sample files are often mapped to the same episode: keep the
+			// largest video per torrent, not the first by index.
+			if current, exists := result[hash]; exists && !file.IsLargerVideoThan(&current) {
 				continue
 			}
 			if !mi.Null {
