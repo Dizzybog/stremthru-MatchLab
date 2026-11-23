@@ -705,15 +705,24 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 		if err := matchlab.Default.Health(context.Background()); err != nil {
 			return err
 		}
+		// Each pass walks the queue once in hash order. A pass that mapped
+		// something starts another, which picks up torrents queued meanwhile
+		// behind the cursor; the run ends after a pass that found nothing.
+		after, processedInPass := "", 0
 		for {
 			db.WaitForMaintenance()
-			pending, err := torrent_info.GetMatchLabPendingHashes(200)
+			pending, next, err := torrent_info.GetMatchLabPendingHashes(after, 200)
 			if err != nil {
 				return err
 			}
 			if len(pending) == 0 {
-				return nil
+				if after == "" || processedInPass == 0 {
+					return nil
+				}
+				after, processedInPass = "", 0
+				continue
 			}
+			after = next
 			hashes := make([]string, len(pending))
 			for i, entry := range pending {
 				hashes[i] = entry.Hash
@@ -738,6 +747,7 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 				if !ok || !t.IsParsed() {
 					continue
 				}
+				processedInPass++
 				wg.Add(1)
 				sem <- struct{}{}
 				go func(hash string, t torrent_info.TorrentInfo, files torrent_stream.Files, revision int64) {
@@ -772,9 +782,6 @@ func InitMapMatchLabTorrentWorker(conf *WorkerConfig) *Worker {
 			}
 			w.Log.Info("processed torrents through MatchLab",
 				"count", len(hashes), "failures", len(errs))
-			if len(hashes) < 200 {
-				return nil
-			}
 		}
 	}
 	return NewWorker(conf)

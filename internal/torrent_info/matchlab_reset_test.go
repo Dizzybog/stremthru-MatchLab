@@ -86,7 +86,7 @@ func verifyMatchLabReset(t *testing.T, hash, path string, includeParsing bool) {
 	require.False(t, mappedAt.Valid)
 	require.Equal(t, int64(4), revision)
 
-	pending, err := GetMatchLabPendingHashes(10)
+	pending, _, err := GetMatchLabPendingHashes("", 10)
 	require.NoError(t, err)
 	if includeParsing {
 		require.Zero(t, parserVersion)
@@ -212,7 +212,7 @@ func TestResetSelectedMatchLabMappingOnlyPreservesParser(t *testing.T) {
 	require.NoError(t, db.QueryRow("SELECT sid FROM torrent_stream WHERE h = ? AND p = ?", hash, path).Scan(&sid))
 	require.Equal(t, "*", sid)
 
-	pending, err := GetMatchLabPendingHashes(10)
+	pending, _, err := GetMatchLabPendingHashes("", 10)
 	require.NoError(t, err)
 	require.Len(t, pending, 1)
 	require.Equal(t, hash, pending[0].Hash)

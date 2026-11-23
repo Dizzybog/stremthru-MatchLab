@@ -1980,15 +1980,42 @@ type MatchLabPendingHash struct {
 	FileRevision int64
 }
 
-func GetMatchLabPendingHashes(limit int) ([]MatchLabPendingHash, error) {
+// GetMatchLabPendingHashes returns up to limit hashes to map: retries that
+// are due first, then never-tried rows after the cursor in hash order. It
+// also returns the cursor for the next call. Restarting from the first hash
+// for every batch would walk again past every pending row that sorts before
+// the eligible ones.
+//
+// Each half has its own partial index, so rows waiting for a future retry
+// and rows already mapped are never scanned.
+func GetMatchLabPendingHashes(after string, limit int) ([]MatchLabPendingHash, string, error) {
 	limit = max(1, min(limit, 500))
-	rows, err := db.Query(
+	hashes, err := queryMatchLabPending(
 		"SELECT hash, matchlab_file_revision FROM torrent_info "+
-			"WHERE matchlab_mapped_at IS NULL AND t_title = parser_input "+
-			"AND (matchlab_retry_at IS NULL OR matchlab_retry_at <= "+db.CurrentTimestamp+") "+
-			"AND parser_version = ? ORDER BY hash LIMIT ?",
+			"WHERE matchlab_mapped_at IS NULL AND matchlab_retry_at IS NOT NULL AND matchlab_retry_at <= "+db.CurrentTimestamp+
+			" AND t_title = parser_input AND parser_version = ? ORDER BY matchlab_retry_at LIMIT ?",
 		matchlab.ParserVersion, limit,
 	)
+	if err != nil || len(hashes) >= limit {
+		return hashes, after, err
+	}
+	fresh, err := queryMatchLabPending(
+		"SELECT hash, matchlab_file_revision FROM torrent_info "+
+			"WHERE matchlab_mapped_at IS NULL AND matchlab_retry_at IS NULL AND t_title = parser_input "+
+			"AND parser_version = ? AND hash > ? ORDER BY hash LIMIT ?",
+		matchlab.ParserVersion, after, limit-len(hashes),
+	)
+	if err != nil {
+		return nil, after, err
+	}
+	if len(fresh) > 0 {
+		after = fresh[len(fresh)-1].Hash
+	}
+	return append(hashes, fresh...), after, nil
+}
+
+func queryMatchLabPending(query string, args ...any) ([]MatchLabPendingHash, error) {
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
