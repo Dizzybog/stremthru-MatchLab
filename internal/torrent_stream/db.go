@@ -637,10 +637,10 @@ var query_record_cond_should_update_mi = fmt.Sprintf(
 	Column.MediaInfo, Column.MediaInfo, Column.MediaInfo, Column.MediaInfo,
 )
 var query_record_cond_should_update_src = fmt.Sprintf(
-	`((%s OR %s) AND (EXCLUDED.%s != 'mfn' OR ts.%s = 'mfn') AND EXCLUDED.%s != '')`,
+	`((%s OR %s) AND (EXCLUDED.%s != 'mfn' OR ts.%s = 'mfn') AND EXCLUDED.%s != '' AND ts.%s != EXCLUDED.%s)`,
 	query_record_cond_new_source_is_dht_or_tor, query_record_cond_old_source_is_not_dht_or_tor,
 	Column.Source, Column.Source,
-	Column.Source,
+	Column.Source, Column.Source, Column.Source,
 )
 
 var query_record_on_conflict_set_cond = func(col, cond string) string {
@@ -695,6 +695,52 @@ var writeCacheMissCount atomic.Int64
 
 func GetWriteCacheStats() (hit int64, miss int64) {
 	return writeCacheHitCount.Load(), writeCacheMissCount.Load()
+}
+
+// recordChunk writes one chunk and returns the hashes whose files it actually
+// inserted or changed. The ON CONFLICT ... WHERE guard skips identical rows,
+// and RETURNING reports only the rows written. With MatchLab, only those
+// torrents go back to the mapping queue, in the same transaction: seeing an
+// unchanged torrent again (a feed scrape, a search, a debrid check, or after
+// the in-memory write cache expired or the process restarted) must not remap
+// it. A dashboard reset still remaps every torrent.
+func recordChunk(query string, args []any) (map[string]struct{}, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(query+" RETURNING "+Column.Hash, args...)
+	if err != nil {
+		return nil, err
+	}
+	changed := map[string]struct{}{}
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		changed[hash] = struct{}{}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if config.Integration.MatchLab.IsEnabled() && len(changed) > 0 {
+		hashes := make([]string, 0, len(changed))
+		for hash := range changed {
+			hashes = append(hashes, hash)
+		}
+		cond, condArgs := db.InStringValues(hashes)
+		if _, err := tx.Exec("UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, "+
+			"matchlab_file_revision = matchlab_file_revision + 1 WHERE hash "+cond, condArgs...); err != nil {
+			return nil, err
+		}
+	}
+	return changed, tx.Commit()
 }
 
 func Record(items []InsertData, discardIdx bool) error {
@@ -762,32 +808,19 @@ func Record(items []InsertData, discardIdx bool) error {
 		if count == 0 {
 			continue
 		}
-		_, err := db.Exec(get_record_query(count), args...)
+		changed, err := recordChunk(get_record_query(count), args)
 		if err != nil {
 			log.Error("failed partially to record", "error", err)
 			errs = append(errs, err)
 		} else {
-			log.Debug("recorded torrent stream", "count", count)
-			invalidatedHashes := util.NewSet[string]()
+			log.Debug("recorded torrent stream", "count", count, "changed_torrents", len(changed))
 			for key, data := range recordDataByKey {
 				prevRecordCache.Add(key, data)
-				hash, _, _ := strings.Cut(key, ":")
-				if !invalidatedHashes.Has(hash) {
-					filesByHashCache.Remove(filesByHashCacheKey(hash))
-					invalidatedHashes.Add(hash)
-				}
 			}
-			if config.Integration.MatchLab.IsEnabled() {
-				// Only touched hashes need another MatchLab pass. Avoid
-				// polling the entire torrent_stream table every cycle.
-				hashes := invalidatedHashes.ToSlice()
-				if len(hashes) > 0 {
-					query, args := db.InStringValues(hashes)
-					_, err := db.Exec("UPDATE torrent_info SET matchlab_mapped_at = NULL, matchlab_retry_at = NULL, matchlab_file_revision = matchlab_file_revision + 1 WHERE hash "+query, args...)
-					if err != nil {
-						errs = append(errs, err)
-					}
-				}
+			// Unchanged rows are untouched in the database, so their cached
+			// file lists stay valid.
+			for hash := range changed {
+				filesByHashCache.Remove(filesByHashCacheKey(hash))
 			}
 		}
 	}
