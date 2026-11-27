@@ -49,10 +49,6 @@ type Torz struct {
 
 	MagnetLink string
 	SourceLink string
-
-	// IMDBId is the indexer's own IMDb identity for the release (tt-prefixed),
-	// when it publishes one (TorrentLeech does).
-	IMDBId string
 }
 
 func (t *Torz) HasMissingData() bool {
@@ -187,33 +183,7 @@ func TorzFromChannelItem(o *znab.ChannelItem, attrs znab.ChannelItemAttrs) *Torz
 			t.Hash = m.Hash
 		}
 	}
-	t.IMDBId = normalizeIMDBId(attrs.Get(znab.TorznabAttrNameIMDBId))
-	if t.IMDBId == "" {
-		t.IMDBId = normalizeIMDBId(attrs.Get(znab.TorznabAttrNameIMDB))
-	}
 	return t
-}
-
-// Torznab publishes IMDb ids with or without the "tt" prefix, sometimes
-// zero-padded or as 0 for "unknown". Return "tt" plus at least 7 digits.
-func normalizeIMDBId(raw string) string {
-	digits := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(raw)), "tt")
-	if digits == "" || len(digits) > 10 {
-		return ""
-	}
-	for _, c := range digits {
-		if c < '0' || c > '9' {
-			return ""
-		}
-	}
-	digits = strings.TrimLeft(digits, "0")
-	if digits == "" {
-		return ""
-	}
-	if len(digits) < 7 {
-		digits = strings.Repeat("0", 7-len(digits)) + digits
-	}
-	return "tt" + digits
 }
 
 type Indexer interface {
