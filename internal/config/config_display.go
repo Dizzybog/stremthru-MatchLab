@@ -101,6 +101,7 @@ type ConfigDisplayTorz struct {
 	TorrentFileCacheSize string `json:"torrent_file_cache_size,omitempty"`
 	TorrentFileCacheTTL  string `json:"torrent_file_cache_ttl,omitempty"`
 	TorrentFileMaxSize   string `json:"torrent_file_max_size"`
+	ReadOnly             bool   `json:"read_only,omitempty"`
 }
 
 type ConfigDisplayWebDAVFileExtFilter struct {
@@ -299,6 +300,7 @@ func BuildConfigDisplay(storeNames []string) ConfigDisplay {
 	data.Torz.Disabled = !Feature.HasTorz()
 	if !data.Torz.Disabled {
 		data.Torz.TorrentFileMaxSize = util.ToSize(Torz.TorrentFileMaxSize)
+		data.Torz.ReadOnly = Torz.ReadOnly
 		if !IsPublicInstance {
 			data.Torz.TorrentFileCacheSize = util.ToSize(Torz.TorrentFileCacheSize)
 			data.Torz.TorrentFileCacheTTL = Torz.TorrentFileCacheTTL.String()

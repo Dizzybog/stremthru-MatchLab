@@ -199,7 +199,9 @@ func handleStreamLegacy(w http.ResponseWriter, r *http.Request) {
 
 	pulledHashes := []string{}
 	nsid, err := torrent_stream.NormalizeStreamId(id)
-	if err == nil {
+	if err == nil && config.Torz.ReadOnly {
+		// Read-only: a request only reads stored torrents; workers queue searches.
+	} else if err == nil {
 		cleanSId := nsid.ToClean()
 		if torzLazyPull {
 			go buddy.PullTorrentsByStremId(cleanSId, "")

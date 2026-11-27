@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/hex"
 	"net/url"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/MunifTanjim/stremthru/internal/db"
+	"github.com/MunifTanjim/stremthru/internal/imdb_title"
 	"github.com/MunifTanjim/stremthru/internal/job"
 	"github.com/MunifTanjim/stremthru/internal/logger"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/torrent_info"
 	torznab_indexer "github.com/MunifTanjim/stremthru/internal/torznab/indexer"
 	"github.com/alitto/pond/v2"
@@ -39,6 +43,7 @@ type feedScrapeResult struct {
 	rejected       int
 	magnetAttempts int
 	magnetFailures int
+	titlesQueued   int
 	duration       time.Duration
 }
 
@@ -121,7 +126,8 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 			"indexer_id", indexer.Id, "indexer", indexer.Name,
 			"status", result.status, "fetched", result.fetched, "eligible", result.eligible,
 			"rejected", result.rejected, "magnet_attempts", result.magnetAttempts,
-			"magnet_failures", result.magnetFailures, "duration", result.duration.String())
+			"magnet_failures", result.magnetFailures, "titles_queued", result.titlesQueued,
+			"duration", result.duration.String())
 	}()
 
 	// The checkbox or global enabled state can change between scheduling
@@ -264,7 +270,85 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 		log.Debug("torznab feed candidates upserted", "indexer_id", indexer.Id, "indexer", indexer.Name,
 			"submitted", len(items), "duration", time.Since(saveStarted).String())
 	}
+	// Identify each release's title (MatchLab, else the local IMDb matcher)
+	// and queue it for the regular indexer search, exactly as a request for
+	// the title would, so the title's other releases are found too.
+	// Own deadline: the search and magnet downloads may have used most of ctx.
+	identifyCtx, cancelIdentify := context.WithTimeout(context.Background(), feedScrapeTimeout)
+	defer cancelIdentify()
+	result.titlesQueued = queueFeedTitles(identifyCtx, items, log)
 	// 'eligible' is not a new-torrent count: Upsert deduplicates existing hashes.
 	result.status = "done"
 	return result
+}
+
+// identifyFeedTitle returns the title-level stream id of a release: the
+// IMDb id, or "anidb:<id>" when only an AniDB identity is known. The local
+// matcher parses the title and searches the IMDb catalog, like the
+// map-imdb-torrent worker does without MatchLab.
+var identifyFeedTitle = func(ctx context.Context, title string) (string, error) {
+	if matchlab.Enabled() {
+		match, err := matchlab.Default.Match(ctx, title)
+		if err != nil {
+			return "", err
+		}
+		for _, sid := range []*string{match.SIDStart, match.SIDEnd} {
+			if sid != nil && strings.HasPrefix(*sid, "tt") {
+				id, _, _ := strings.Cut(*sid, ":")
+				return id, nil
+			}
+		}
+		for _, asid := range []*string{match.ASIDStart, match.ASIDEnd} {
+			if asid != nil && *asid != "" {
+				id, _, _ := strings.Cut(*asid, ":")
+				return "anidb:" + id, nil
+			}
+		}
+		return "", nil
+	}
+	tInfo := torrent_info.TorrentInfo{TorrentTitle: title}
+	if err := tInfo.Parse(); err != nil || tInfo.Title == "" {
+		return "", err
+	}
+	titleType := imdb_title.SearchTitleTypeMovie
+	if len(tInfo.Seasons) > 0 || len(tInfo.Episodes) > 0 {
+		titleType = imdb_title.SearchTitleTypeShow
+	}
+	found, err := imdb_title.SearchOne(tInfo.Title, titleType, tInfo.Year, false)
+	if err != nil || found == nil {
+		return "", err
+	}
+	if titleType == imdb_title.SearchTitleTypeShow && !imdb_title.IMDBTitleType(found.Type).IsShow() {
+		return "", nil
+	}
+	return found.TId, nil
+}
+
+// queueFeedTitles queues each distinct title of a feed once.
+func queueFeedTitles(ctx context.Context, items []torrent_info.TorrentItem, log *logger.Logger) int {
+	var mu sync.Mutex
+	seen := map[string]struct{}{}
+	pool := pond.NewPool(4)
+	for i := range items {
+		title := items[i].TorrentTitle
+		pool.Submit(func() {
+			sid, err := identifyFeedTitle(ctx, title)
+			if err != nil {
+				log.Debug("failed to identify feed title", "title", title, "error", err)
+				return
+			}
+			if sid == "" {
+				return
+			}
+			mu.Lock()
+			_, queued := seen[sid]
+			seen[sid] = struct{}{}
+			mu.Unlock()
+			if !queued {
+				QueueJob(sid)
+			}
+		})
+	}
+	_ = pool.Stop().Wait()
+	return len(seen)
 }
