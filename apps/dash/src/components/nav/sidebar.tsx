@@ -80,7 +80,7 @@ export function DashSidebar({ ...props }: ComponentProps<typeof Sidebar>) {
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-medium">StremThru</span>
                   <span className="">v{serverStats.data?.version}</span>
-                  <span className="text-muted-foreground text-xs">
+                  <span className="text-muted-foreground self-end text-[10px] leading-none">
                     Powered by MatchLab
                   </span>
                 </div>
