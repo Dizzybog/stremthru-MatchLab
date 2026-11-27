@@ -841,6 +841,9 @@ func PrintConfig(state *AppState) {
 		l.Println("    torrent file cache ttl: " + data.Torz.TorrentFileCacheTTL)
 	}
 	l.Println("     torrent file max size: " + data.Torz.TorrentFileMaxSize)
+	if data.Torz.ReadOnly {
+		l.Println("                 read only: requests do not queue pulls or indexer searches")
+	}
 	l.Println()
 
 	l.Println(" WebDAV:")

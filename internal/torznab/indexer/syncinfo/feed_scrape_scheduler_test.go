@@ -1,6 +1,10 @@
 package torznab_indexer_syncinfo
 
-import "testing"
+import (
+	"testing"
+
+	tznc "github.com/MunifTanjim/stremthru/internal/torznab/client"
+)
 
 func TestFeedScrapeQueryRequestsLatestReleases(t *testing.T) {
 	query := feedScrapeQuery()
@@ -18,5 +22,19 @@ func TestFeedScrapeQueryRequestsLatestReleases(t *testing.T) {
 	}
 	if len(query) != 3 {
 		t.Fatalf("expected only t, q and limit parameters, got %v", query)
+	}
+}
+
+// Each distinct IMDb id of a feed is queued once; releases without one are
+// left to the MatchLab mapping workers.
+func TestQueueFeedIMDbIdsQueuesEachTitleOnce(t *testing.T) {
+	results := []tznc.Torz{
+		{Title: "Breaking.Bad.S01E01", IMDBId: "tt0903747"},
+		{Title: "Breaking.Bad.S01E02", IMDBId: "tt0903747"},
+		{Title: "The.Sopranos.S01E01", IMDBId: "tt0141842"},
+		{Title: "Unknown.Release"},
+	}
+	if got := queueFeedIMDbIds(results); got != 2 {
+		t.Fatalf("queued %d distinct titles, want 2", got)
 	}
 }

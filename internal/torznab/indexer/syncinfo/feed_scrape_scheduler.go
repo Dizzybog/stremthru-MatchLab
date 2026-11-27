@@ -11,6 +11,7 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/job"
 	"github.com/MunifTanjim/stremthru/internal/logger"
 	"github.com/MunifTanjim/stremthru/internal/torrent_info"
+	tznc "github.com/MunifTanjim/stremthru/internal/torznab/client"
 	torznab_indexer "github.com/MunifTanjim/stremthru/internal/torznab/indexer"
 	"github.com/alitto/pond/v2"
 )
@@ -39,6 +40,7 @@ type feedScrapeResult struct {
 	rejected       int
 	magnetAttempts int
 	magnetFailures int
+	imdbQueued     int
 	duration       time.Duration
 }
 
@@ -121,7 +123,8 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 			"indexer_id", indexer.Id, "indexer", indexer.Name,
 			"status", result.status, "fetched", result.fetched, "eligible", result.eligible,
 			"rejected", result.rejected, "magnet_attempts", result.magnetAttempts,
-			"magnet_failures", result.magnetFailures, "duration", result.duration.String())
+			"magnet_failures", result.magnetFailures, "imdb_queued", result.imdbQueued,
+			"duration", result.duration.String())
 	}()
 
 	// The checkbox or global enabled state can change between scheduling
@@ -264,7 +267,28 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 		log.Debug("torznab feed candidates upserted", "indexer_id", indexer.Id, "indexer", indexer.Name,
 			"submitted", len(items), "duration", time.Since(saveStarted).String())
 	}
+	// Indexers such as TorrentLeech publish each release's IMDb id. Queue
+	// those titles for the regular indexer search, exactly as a request for
+	// the title would, so their other releases are found too.
+	result.imdbQueued = queueFeedIMDbIds(results)
 	// 'eligible' is not a new-torrent count: Upsert deduplicates existing hashes.
 	result.status = "done"
 	return result
+}
+
+// queueFeedIMDbIds queues each distinct IMDb id of a feed once.
+func queueFeedIMDbIds(results []tznc.Torz) int {
+	seen := map[string]struct{}{}
+	for i := range results {
+		id := results[i].IMDBId
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		QueueJob(id)
+	}
+	return len(seen)
 }

@@ -130,6 +130,10 @@ func (sti stremThruIndexer) Search(q Query) ([]FeedItem, error) {
 
 	var wg sync.WaitGroup
 	for _, imdbId := range imdbIds {
+		// Read-only: a request only reads stored torrents; workers queue searches.
+		if config.Torz.ReadOnly {
+			break
+		}
 		wg.Go(func() {
 			torznab_indexer_syncinfo.QueueJob(imdbId + sidSuffix)
 			if config.Feature.HasPerformance() {

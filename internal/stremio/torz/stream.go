@@ -717,10 +717,13 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	buddy.QueuePullTorrentsByStremId(nsid.ToClean())
-	torznab_indexer_syncinfo.QueueJob(nsid.String())
 	ctx.sourceScope = eud
-	queueIndexerRefresh(ctx, contentType, id, eud)
+	// Read-only: a request only reads stored torrents; workers queue searches.
+	if !config.Torz.ReadOnly {
+		buddy.QueuePullTorrentsByStremId(nsid.ToClean())
+		torznab_indexer_syncinfo.QueueJob(nsid.String())
+		queueIndexerRefresh(ctx, contentType, id, eud)
+	}
 
 	hashes, err := torrent_info.ListHashesByStremIdFast(id)
 	if err != nil {

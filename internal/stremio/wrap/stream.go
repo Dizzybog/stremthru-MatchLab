@@ -62,7 +62,9 @@ func (ud UserData) fetchStream(ctx *Ctx, r *http.Request, rType, id string) (*st
 	torrentInfoCategory := torrent_info.GetCategoryFromStremId(stremId, rType)
 
 	nsid, err := torrent_stream.NormalizeStreamId(stremId)
-	if err == nil {
+	if err == nil && config.Torz.ReadOnly {
+		// Read-only: a request only reads stored torrents; workers queue searches.
+	} else if err == nil {
 		cleanSId := nsid.ToClean()
 		if !ud.IncludeTorz || lazyPullTorz {
 			go buddy.PullTorrentsByStremId(cleanSId, "")

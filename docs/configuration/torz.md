@@ -43,3 +43,19 @@ Maximum torrent file size allowed.
 ```sh
 STREMTHRU_TORZ_TORRENT_FILE_MAX_SIZE=1MB
 ```
+
+### `STREMTHRU_TORZ_READ_ONLY`
+
+Read-only mode for requests. Stremio Torz, Wrap and Torznab API requests
+only read the torrents already stored: they do not pull torrents from peers
+and do not queue indexer searches. Workers still fill the database, such as
+the Torznab feed scraper, which queues an indexer search for every IMDb id
+an opted-in indexer's feed publishes (TorrentLeech does).
+
+- **Default:** `false`
+
+**Example:**
+
+```sh
+STREMTHRU_TORZ_READ_ONLY=true
+```
