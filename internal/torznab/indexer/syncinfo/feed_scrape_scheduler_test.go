@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/MunifTanjim/stremthru/internal/logger"
-	"github.com/MunifTanjim/stremthru/internal/torrent_info"
 )
 
 func TestFeedScrapeQueryRequestsLatestReleases(t *testing.T) {
@@ -41,11 +40,11 @@ func TestQueueFeedTitlesQueuesEachTitleOnce(t *testing.T) {
 	identifyFeedTitle = func(_ context.Context, title string) (string, error) {
 		return ids[title], nil
 	}
-	items := []torrent_info.TorrentItem{}
+	titles := []string{}
 	for title := range ids {
-		items = append(items, torrent_info.TorrentItem{TorrentTitle: title})
+		titles = append(titles, title)
 	}
-	if got := queueFeedTitles(context.Background(), items, logger.Scoped("test")); got != 2 {
+	if got := queueFeedTitles(context.Background(), titles, logger.Scoped("test")); got != 2 {
 		t.Fatalf("queued %d distinct titles, want 2", got)
 	}
 }
