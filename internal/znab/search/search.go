@@ -30,6 +30,9 @@ type QueryMeta struct {
 	Titles     []string
 	Year       int
 	Season, Ep int
+	// IsSeries is true for an IMDb series even without a season, so a
+	// title-level id searches the whole series (all seasons and episodes).
+	IsSeries bool
 }
 
 func GetQueryMeta(log *logger.Logger, sid string) (*QueryMeta, *torrent_stream.NormalizedStremId, error) {
@@ -97,6 +100,7 @@ func GetQueryMeta(log *logger.Logger, sid string) (*QueryMeta, *torrent_stream.N
 		if it.Year > 0 {
 			meta.Year = it.Year
 		}
+		meta.IsSeries = imdb_title.IMDBTitleType(it.Type).IsShow()
 		if nsid.IsSeries() {
 			meta.Season = util.SafeParseInt(nsid.Season, 0)
 			meta.Ep = util.SafeParseInt(nsid.Episode, 0)
@@ -122,11 +126,15 @@ func BuildQueriesForTorznab(client tznc.Indexer, conf QueryBuilderConfig) (map[s
 	if searchMode == "" {
 		searchMode = "auto"
 	}
+	// A series id without a season searches the whole series: no season,
+	// episode or first-air year narrows it (most results).
+	series := nsid.IsSeries() || meta.IsSeries
+	wholeSeries := series && nsid.Season == "" && nsid.Episode == ""
 
 	queriesBySid := map[string][]IndexerQuery{}
 
 	query, err := client.NewSearchQuery(func(caps znab.Caps) znab.Function {
-		if nsid.IsSeries() && caps.SupportsFunction(znab.FunctionSearchTV) {
+		if series && caps.SupportsFunction(znab.FunctionSearchTV) {
 			return znab.FunctionSearchTV
 		}
 		if caps.SupportsFunction(znab.FunctionSearchMovie) {
@@ -142,9 +150,9 @@ func BuildQueriesForTorznab(client tznc.Indexer, conf QueryBuilderConfig) (map[s
 	if searchMode != "query" && !nsid.IsAnime && query.IsSupported(znab.SearchParamIMDBId) {
 		query.Set(znab.SearchParamIMDBId, nsid.Id)
 		sid := nsid.ToClean()
-		isExact := !nsid.IsSeries()
+		isExact := !series
 
-		if nsid.IsSeries() {
+		if series {
 			if query.IsSupported(znab.SearchParamSeason) && nsid.Season != "" {
 				query.Set(znab.SearchParamSeason, nsid.Season)
 				if query.IsSupported(znab.SearchParamEp) && nsid.Episode != "" {
@@ -164,7 +172,7 @@ func BuildQueriesForTorznab(client tznc.Indexer, conf QueryBuilderConfig) (map[s
 	} else {
 		query.SetT(znab.FunctionSearch)
 		supportsYear := query.IsSupported(znab.SearchParamYear)
-		if supportsYear && meta.Year != 0 {
+		if supportsYear && meta.Year != 0 && !wholeSeries {
 			query.Set(znab.SearchParamYear, strconv.Itoa(meta.Year))
 		}
 
@@ -172,7 +180,7 @@ func BuildQueriesForTorznab(client tznc.Indexer, conf QueryBuilderConfig) (map[s
 			var q strings.Builder
 			q.WriteString(title)
 
-			if nsid.IsSeries() {
+			if series {
 				sid := nsid.ToClean()
 				queriesBySid[sid] = append(queriesBySid[sid], IndexerQuery{
 					Query: query.Clone().Set(znab.SearchParamQ, q.String()).Values(),
