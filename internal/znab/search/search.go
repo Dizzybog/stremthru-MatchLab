@@ -82,6 +82,27 @@ func GetQueryMeta(log *logger.Logger, sid string) (*QueryMeta, *torrent_stream.N
 			} else {
 				log.Warn("AniDB episode map not found", "anidb_id", nsid.Id, "episode", aniEp)
 			}
+		} else {
+			// A title-level AniDB id ("anidb:17617", as the feed scraper
+			// queues) searches the whole work by its titles.
+			titles, err := anidb.GetTitlesByIds([]string{nsid.Id})
+			if err != nil {
+				log.Error("failed to get AniDB titles", "error", err, "anidb_id", nsid.Id)
+				return nil, nsid, err
+			}
+			meta.IsSeries = true
+			seenTitle := util.NewSet[string]()
+			for i := range titles {
+				normalizedTitle := normalizeAnimeTitle(titles[i].Value)
+				if seenTitle.Has(normalizedTitle) {
+					continue
+				}
+				seenTitle.Add(normalizedTitle)
+				meta.Titles = append(meta.Titles, normalizedTitle)
+			}
+			if len(meta.Titles) == 0 {
+				log.Warn("AniDB title not found", "anidb_id", nsid.Id)
+			}
 		}
 	} else {
 		it, err := imdb_title.Get(nsid.Id)

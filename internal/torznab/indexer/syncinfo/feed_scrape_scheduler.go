@@ -249,6 +249,7 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 
 	// A feed has no title identity yet. Leave category unknown so the normal
 	// parser and MatchLab mapping workers can classify the newly seen torrent.
+	saveFailed := false
 	if len(items) > 0 {
 		db.WaitForMaintenance()
 		updated, err := torznab_indexer.GetById(indexer.Id)
@@ -265,10 +266,12 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 		if err := torrent_info.Upsert(items, torrent_info.TorrentInfoCategoryUnknown, false); err != nil {
 			log.Error("failed to save scraped feed torrents", "indexer_id", indexer.Id, "indexer", indexer.Name,
 				"error", err, "eligible", len(items), "duration", time.Since(saveStarted).String())
-			return result
+			// The titles are still worth searching: queue them below.
+			saveFailed = true
+		} else {
+			log.Debug("torznab feed candidates upserted", "indexer_id", indexer.Id, "indexer", indexer.Name,
+				"submitted", len(items), "duration", time.Since(saveStarted).String())
 		}
-		log.Debug("torznab feed candidates upserted", "indexer_id", indexer.Id, "indexer", indexer.Name,
-			"submitted", len(items), "duration", time.Since(saveStarted).String())
 	}
 	// Identify each release's title (MatchLab, else the local IMDb matcher)
 	// and queue it for the regular indexer search, exactly as a request for
@@ -276,7 +279,18 @@ func scrapeTorznabFeed(indexer *torznab_indexer.TorznabIndexer, log *logger.Logg
 	// Own deadline: the search and magnet downloads may have used most of ctx.
 	identifyCtx, cancelIdentify := context.WithTimeout(context.Background(), feedScrapeTimeout)
 	defer cancelIdentify()
-	result.titlesQueued = queueFeedTitles(identifyCtx, items, log)
+	// Every release with a title, even one without a usable hash that could
+	// not be saved, tells which title has new releases.
+	titles := make([]string, 0, len(results))
+	for i := range results {
+		if results[i].Title != "" {
+			titles = append(titles, results[i].Title)
+		}
+	}
+	result.titlesQueued = queueFeedTitles(identifyCtx, titles, log)
+	if saveFailed {
+		return result
+	}
 	// 'eligible' is not a new-torrent count: Upsert deduplicates existing hashes.
 	result.status = "done"
 	return result
@@ -325,12 +339,11 @@ var identifyFeedTitle = func(ctx context.Context, title string) (string, error) 
 }
 
 // queueFeedTitles queues each distinct title of a feed once.
-func queueFeedTitles(ctx context.Context, items []torrent_info.TorrentItem, log *logger.Logger) int {
+func queueFeedTitles(ctx context.Context, titles []string, log *logger.Logger) int {
 	var mu sync.Mutex
 	seen := map[string]struct{}{}
 	pool := pond.NewPool(4)
-	for i := range items {
-		title := items[i].TorrentTitle
+	for _, title := range titles {
 		pool.Submit(func() {
 			sid, err := identifyFeedTitle(ctx, title)
 			if err != nil {
