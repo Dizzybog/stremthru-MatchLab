@@ -13,6 +13,8 @@ import (
 	"github.com/MunifTanjim/stremthru/internal/anidb"
 	"github.com/MunifTanjim/stremthru/internal/anime"
 	"github.com/MunifTanjim/stremthru/internal/config"
+	"github.com/MunifTanjim/stremthru/internal/logger"
+	"github.com/MunifTanjim/stremthru/internal/matchlab"
 	"github.com/MunifTanjim/stremthru/internal/server"
 	"github.com/MunifTanjim/stremthru/internal/shared"
 	stremio_transformer "github.com/MunifTanjim/stremthru/internal/stremio/transformer"
@@ -40,6 +42,9 @@ type StreamFileMatcher struct {
 	Season         int
 	AniDBId        string
 	EpisodeMaps    *anidb.AniDBTVDBEpisodeMapsResult
+	// MatchedFile is the file MatchLab already mapped to the requested id.
+	// It wins over title parsing, which stays as the fallback.
+	MatchedFile *torrent_stream.File
 
 	IdR        *ParsedId
 	IdPrefix   string
@@ -183,12 +188,13 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 				}
 
 				items := getCatalogItems(ctx.Store, ctx.StoreAuthToken, ctx.ClientIP, idr, log)
+				matchedFiles := getMatchLabFiles(idr, items, videoIdWithLink, log)
 				if meta.Name != "" {
 					normalizer := util.NewStringNormalizer()
 					filteredItems := []CachedCatalogItem{}
 					for i := range items {
 						item := &items[i]
-						if util.FuzzyTokenSetRatio(meta.Name, item.Name, normalizer) > 90 {
+						if _, ok := matchedFiles[item.Hash]; ok || util.FuzzyTokenSetRatio(meta.Name, item.Name, normalizer) > 90 {
 							filteredItems = append(filteredItems, *item)
 						}
 					}
@@ -200,9 +206,10 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 					id := strings.TrimPrefix(item.Id, idPrefix)
 					if sType == "series" {
 						matcherResults[idx] = append(matcherResults[idx], StreamFileMatcher{
-							MagnetId: id,
-							Season:   season,
-							Episode:  episode,
+							MagnetId:    id,
+							Season:      season,
+							Episode:     episode,
+							MatchedFile: matchedFileFor(matchedFiles, item.Hash),
 
 							IdPrefix:   idPrefix,
 							IdR:        idr,
@@ -214,6 +221,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 						matcherResults[idx] = append(matcherResults[idx], StreamFileMatcher{
 							MagnetId:       id,
 							UseLargestFile: true,
+							MatchedFile:    matchedFileFor(matchedFiles, item.Hash),
 
 							IdPrefix:   idPrefix,
 							IdR:        idr,
@@ -295,9 +303,19 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 				}
 
 				items := getCatalogItems(ctx.Store, ctx.StoreAuthToken, ctx.ClientIP, idr, log)
+				matchedFiles := map[string]torrent_stream.File{}
+				if episode != "" {
+					matchedFiles = getMatchLabFiles(idr, items, anidbId+":"+episode, log)
+				}
 
 				addedItemIdx := map[int]struct{}{}
 				filteredItems := []CachedCatalogItem{}
+				for i := range items {
+					if _, ok := matchedFiles[items[i].Hash]; ok {
+						filteredItems = append(filteredItems, items[i])
+						addedItemIdx[i] = struct{}{}
+					}
+				}
 				normalizer := util.NewStringNormalizer()
 				for i := range titles {
 					title := &titles[i]
@@ -323,6 +341,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 						Episode:     util.SafeParseInt(episode, -1),
 						AniDBId:     anidbId,
 						EpisodeMaps: tvdbEpisodeMaps,
+						MatchedFile: matchedFileFor(matchedFiles, item.Hash),
 
 						IdPrefix:   idPrefix,
 						IdR:        idr,
@@ -351,6 +370,8 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	streams := make([]*stremio.Stream, len(matchers))
 	for i, matcher := range matchers {
 		wg.Go(func() {
+			// Each stream resolves its own coordinates.
+			season, episode := season, episode
 			cInfo, err := getStoreContentInfo(matcher.Store, matcher.StoreToken, matcher.MagnetId, matcher.ClientIP, matcher.IdR)
 			if err != nil {
 				errs[i] = err
@@ -390,7 +411,14 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 			var pttr *ptt.Result
 			var file *store.MagnetFile
 
+			if matcher.MatchedFile != nil {
+				file = findMatchedStoreFile(cInfo.Files, matcher.MatchedFile)
+			}
+
 			for i := range cInfo.Files {
+				if file != nil {
+					break
+				}
 				f := &cInfo.Files[i]
 				if !core.HasVideoExtension(f.Name) {
 					continue
@@ -515,6 +543,11 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 					pttLog.Warn("failed to parse", "error", err, "title", file.Name)
 				}
 			}
+			if matcher.MatchedFile != nil && !isAnime && matcher.Season > 0 && matcher.Episode > 0 {
+				// MatchLab mapped this file to the requested episode, which the
+				// file name may number differently (absolute, named parts).
+				season, episode = matcher.Season, matcher.Episode
+			}
 			if pttr != nil {
 				if tpttr.Error() == nil {
 					if pttr.Resolution == "" {
@@ -601,4 +634,49 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	SendResponse(w, r, 200, res)
+}
+
+// getMatchLabFiles returns, per torrent hash, the file MatchLab mapped to
+// streamId. Usenet and WebDL items have no torrent identity.
+func getMatchLabFiles(idr *ParsedId, items []CachedCatalogItem, streamId string, log *logger.Logger) map[string]torrent_stream.File {
+	if !matchlab.Enabled() || idr.isUsenet || idr.isWebDL || streamId == "" {
+		return map[string]torrent_stream.File{}
+	}
+	hashes := make([]string, 0, len(items))
+	for i := range items {
+		if items[i].Hash != "" {
+			hashes = append(hashes, items[i].Hash)
+		}
+	}
+	files, err := torrent_stream.GetMatchingFilesByHashes(hashes, streamId)
+	if err != nil {
+		log.Error("failed to get matchlab files", "error", err, "sid", streamId)
+		return map[string]torrent_stream.File{}
+	}
+	return files
+}
+
+func matchedFileFor(files map[string]torrent_stream.File, hash string) *torrent_stream.File {
+	if f, ok := files[hash]; ok && hash != "" {
+		return &f
+	}
+	return nil
+}
+
+// findMatchedStoreFile locates the MatchLab file in the store's file list.
+// Stores report either the full path or only the name, so the name plus size
+// is accepted too.
+func findMatchedStoreFile(files []store.MagnetFile, match *torrent_stream.File) *store.MagnetFile {
+	for i := range files {
+		if files[i].Path != "" && files[i].Path == match.Path {
+			return &files[i]
+		}
+	}
+	for i := range files {
+		f := &files[i]
+		if f.Size == match.Size && (f.Name == match.Name || f.GetName() == match.Name) {
+			return f
+		}
+	}
+	return nil
 }
